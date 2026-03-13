@@ -9,14 +9,18 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     python3 \
     python3-pip \
+    git \
     # Vulkan loader + Mesa OpenGL — required for Isaac Gym's rendering backend
     libvulkan1 \
     vulkan-utils \
     libgl1-mesa-glx \
     libegl1-mesa \
     libgles2-mesa \
+    # Runtime libs used by Pillow/matplotlib in camera and plotting examples
+    libtiff5 \
     # X11 client lib so the viewer can connect to a forwarded display
     libx11-6 \
+    xauth \
     # Virtual framebuffer — lets Isaac Gym open a window even without a real display
     xvfb \
     && rm -rf /var/lib/apt/lists/*
