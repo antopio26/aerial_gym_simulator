@@ -2,7 +2,7 @@
 
 ## Docker Quick Start
 
-A self-contained Docker environment is provided under [`docker/`](docker/) for running the simulator without a manual local installation.
+A self-contained Docker environment is provided under [`docker/`](/docker/) for running the simulator without a manual local installation.
 
 ### Prerequisites
 
