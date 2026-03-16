@@ -35,7 +35,13 @@ class WarpEnv(BaseManager):
         self.CONST_WARP_MESH_PER_ENV = None
         self.CONST_GLOBAL_VERTEX_TO_ASSET_INDEX_TENSOR = None
         self.VERTEX_MAPS_PER_ENV_ORIGINAL = None
+        self.static_scene = None
+        self.env_origins = None
         logger.debug("[DONE] Initializing WarpEnv")
+
+    def set_static_scene(self, static_scene, env_origins):
+        self.static_scene = static_scene
+        self.env_origins = np.asarray(env_origins, dtype=np.float32)
 
     def reset_idx(self, env_ids):
         if self.global_vertex_counter == 0:
@@ -97,6 +103,81 @@ class WarpEnv(BaseManager):
     def prepare_for_simulation(self, global_tensor_dict):
         logger.debug("Preparing for simulation")
         self.global_tensor_dict = global_tensor_dict
+        if self.static_scene is not None and self.global_vertex_counter > 0:
+            raise NotImplementedError("Combining static GLB scenes with dynamic warp-managed assets is not implemented yet.")
+
+        if self.static_scene is not None:
+            texture_image = self.static_scene.texture_image
+            if texture_image is not None:
+                self.global_tensor_dict["CONST_WARP_TEXTURE_IMAGE_TENSOR"] = torch.tensor(
+                    texture_image,
+                    device=self.device,
+                    dtype=torch.float32,
+                    requires_grad=False,
+                ) / 255.0
+            else:
+                self.global_tensor_dict["CONST_WARP_TEXTURE_IMAGE_TENSOR"] = None
+
+            self.global_tensor_dict["CONST_WARP_TEXTURE_UV_TENSOR"] = torch.tensor(
+                self.static_scene.render_vertex_uvs,
+                device=self.device,
+                dtype=torch.float32,
+                requires_grad=False,
+            )
+            self.global_tensor_dict["CONST_WARP_VERTEX_COLOR_TENSOR"] = torch.tensor(
+                self.static_scene.vertex_colors,
+                device=self.device,
+                dtype=torch.float32,
+                requires_grad=False,
+            )
+            self.global_tensor_dict["CONST_WARP_TEXTURE_BASE_COLOR_FACTOR"] = torch.tensor(
+                self.static_scene.base_color_factor,
+                device=self.device,
+                dtype=torch.float32,
+                requires_grad=False,
+            )
+
+            self.warp_mesh_per_env = []
+            self.warp_mesh_id_list = []
+            for env_origin in self.env_origins:
+                translated_vertices = self.static_scene.render_vertices + env_origin[None, :]
+                vertex_tensor = torch.tensor(
+                    translated_vertices,
+                    device=self.device,
+                    dtype=torch.float32,
+                    requires_grad=False,
+                )
+                face_tensor = torch.tensor(
+                    self.static_scene.render_faces,
+                    device=self.device,
+                    dtype=torch.int32,
+                    requires_grad=False,
+                )
+                velocity_tensor = torch.zeros(
+                    (translated_vertices.shape[0], 3),
+                    device=self.device,
+                    dtype=torch.float32,
+                    requires_grad=False,
+                )
+
+                wp_mesh = wp.Mesh(
+                    points=wp.from_torch(vertex_tensor, dtype=wp.vec3),
+                    indices=wp.from_torch(face_tensor.flatten(), dtype=wp.int32),
+                    velocities=wp.from_torch(velocity_tensor, dtype=wp.vec3),
+                )
+                self.warp_mesh_per_env.append(wp_mesh)
+                self.warp_mesh_id_list.append(wp_mesh.id)
+
+            self.CONST_WARP_MESH_ID_LIST = self.warp_mesh_id_list
+            self.CONST_WARP_MESH_PER_ENV = self.warp_mesh_per_env
+            self.global_tensor_dict["CONST_WARP_MESH_ID_LIST"] = self.CONST_WARP_MESH_ID_LIST
+            self.global_tensor_dict["CONST_WARP_MESH_PER_ENV"] = self.CONST_WARP_MESH_PER_ENV
+            self.global_tensor_dict["CONST_GLOBAL_VERTEX_TO_ASSET_INDEX_TENSOR"] = None
+            self.global_tensor_dict["VERTEX_MAPS_PER_ENV_ORIGINAL"] = None
+            self.global_tensor_dict["CONST_GLOBAL_VERTEX_COLOR_TENSOR"] = None
+            self.global_tensor_dict["CONST_GLOBAL_VERTEX_COLOR_OFFSETS"] = None
+            return 1
+
         if self.global_vertex_counter == 0:
             logger.warning(
                 "No assets have been added to the environment. Skipping preparation for simulation"
@@ -107,6 +188,10 @@ class WarpEnv(BaseManager):
             self.global_tensor_dict["VERTEX_MAPS_PER_ENV_ORIGINAL"] = None
             self.global_tensor_dict["CONST_GLOBAL_VERTEX_COLOR_TENSOR"] = None
             self.global_tensor_dict["CONST_GLOBAL_VERTEX_COLOR_OFFSETS"] = None
+            self.global_tensor_dict["CONST_WARP_TEXTURE_IMAGE_TENSOR"] = None
+            self.global_tensor_dict["CONST_WARP_TEXTURE_UV_TENSOR"] = None
+            self.global_tensor_dict["CONST_WARP_VERTEX_COLOR_TENSOR"] = None
+            self.global_tensor_dict["CONST_WARP_TEXTURE_BASE_COLOR_FACTOR"] = None
             return 1
 
         self.global_vertex_to_asset_index_tensor = torch.tensor(

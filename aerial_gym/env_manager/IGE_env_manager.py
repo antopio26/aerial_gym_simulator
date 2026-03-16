@@ -33,6 +33,7 @@ class IsaacGymEnv(BaseManager):
         self.env_tensor_bounds_max = None
         self.asset_handles = []
         self.env_handles = []
+        self.env_origins = []
         self.num_rigid_bodies_robot = None
         self.has_IGE_cameras = has_IGE_cameras
         self.sim_has_dof = False
@@ -165,9 +166,26 @@ class IsaacGymEnv(BaseManager):
         if len(self.env_handles) <= env_id:
             self.env_handles.append(env_handle)
             self.asset_handles.append([])
+            env_origin = self.gym.get_env_origin(env_handle)
+            self.env_origins.append([env_origin.x, env_origin.y, env_origin.z])
         else:
             raise ValueError("Environment already exists")
         return env_handle
+
+    def add_static_triangle_mesh(self, vertices, faces, translation, static_friction, dynamic_friction, restitution, segmentation_id=0):
+        vertices = np.ascontiguousarray(vertices, dtype=np.float32).reshape(-1)
+        faces = np.ascontiguousarray(faces, dtype=np.uint32).reshape(-1)
+        triangle_mesh_params = gymapi.TriangleMeshParams()
+        triangle_mesh_params.nb_vertices = int(vertices.shape[0] // 3)
+        triangle_mesh_params.nb_triangles = int(faces.shape[0] // 3)
+        triangle_mesh_params.transform = gymapi.Transform()
+        triangle_mesh_params.transform.p = gymapi.Vec3(*translation)
+        triangle_mesh_params.static_friction = static_friction
+        triangle_mesh_params.dynamic_friction = dynamic_friction
+        triangle_mesh_params.restitution = restitution
+        triangle_mesh_params.segmentation_id = segmentation_id
+        self.gym.add_triangle_mesh(self.sim, vertices, faces, triangle_mesh_params)
+        return
 
     def reset(self):
         self.reset_idx(torch.arange(self.num_envs, device=self.device))

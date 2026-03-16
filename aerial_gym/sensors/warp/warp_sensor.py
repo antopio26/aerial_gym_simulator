@@ -152,10 +152,17 @@ class WarpSensor(BaseSensor):
         if self.cfg.sensor_type == "shaded_rgbd_camera":
             self.rgb_pixels = global_tensor_dict["rgb_pixels"]
             self.sensor.set_image_tensors(rgb_pixels=self.rgb_pixels, depth_pixels=self.pixels)
-            self.sensor.set_vertex_color_buffers(
-                global_tensor_dict["CONST_GLOBAL_VERTEX_COLOR_TENSOR"],
-                global_tensor_dict["CONST_GLOBAL_VERTEX_COLOR_OFFSETS"],
-            )
+            if global_tensor_dict.get("CONST_WARP_TEXTURE_IMAGE_TENSOR", None) is not None:
+                self.sensor.set_texture_buffers(
+                    global_tensor_dict["CONST_WARP_TEXTURE_UV_TENSOR"],
+                    global_tensor_dict["CONST_WARP_TEXTURE_IMAGE_TENSOR"],
+                    global_tensor_dict["CONST_WARP_TEXTURE_BASE_COLOR_FACTOR"],
+                )
+            elif global_tensor_dict.get("CONST_GLOBAL_VERTEX_COLOR_TENSOR", None) is not None:
+                self.sensor.set_vertex_color_buffers(
+                    global_tensor_dict["CONST_GLOBAL_VERTEX_COLOR_TENSOR"],
+                    global_tensor_dict["CONST_GLOBAL_VERTEX_COLOR_OFFSETS"],
+                )
         else:
             self.sensor.set_image_tensors(
                 pixels=self.pixels, segmentation_pixels=self.segmentation_pixels

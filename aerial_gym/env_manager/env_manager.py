@@ -6,6 +6,7 @@ from aerial_gym.env_manager.warp_env_manager import WarpEnv
 from aerial_gym.env_manager.asset_loader import AssetLoader
 from aerial_gym.robots.robot_manager import RobotManagerIGE
 from aerial_gym.env_manager.obstacle_manager import ObstacleManager
+from aerial_gym.env_manager.static_scene import StaticSceneGLB
 
 
 from aerial_gym.registry.env_registry import env_config_registry
@@ -148,6 +149,7 @@ class EnvManager(BaseManager):
 
         self.global_asset_counter = 0
         self.step_counter = 0
+        self.static_scene = None
 
         self.asset_min_state_ratio = None
         self.asset_max_state_ratio = None
@@ -250,6 +252,21 @@ class EnvManager(BaseManager):
             )
 
         self.global_tensor_dict["num_obstacles_in_env"] = self.num_obs_in_env
+
+        if hasattr(self.cfg, "static_scene") and getattr(self.cfg.static_scene, "enable", False):
+            self.static_scene = StaticSceneGLB(self.cfg.static_scene)
+            for env_origin in self.IGE_env.env_origins:
+                self.IGE_env.add_static_triangle_mesh(
+                    vertices=self.static_scene.collision_vertices,
+                    faces=self.static_scene.collision_faces,
+                    translation=env_origin,
+                    static_friction=self.cfg.static_scene.collision_static_friction,
+                    dynamic_friction=self.cfg.static_scene.collision_dynamic_friction,
+                    restitution=self.cfg.static_scene.collision_restitution,
+                    segmentation_id=self.cfg.static_scene.segmentation_id,
+                )
+            if self.cfg.env.use_warp:
+                self.warp_env.set_static_scene(self.static_scene, self.IGE_env.env_origins)
 
     def prepare_sim(self):
         """

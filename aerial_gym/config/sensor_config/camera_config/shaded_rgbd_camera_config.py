@@ -15,5 +15,5 @@ class ShadedRGBDCameraConfig(BaseDepthCameraConfig):
     light_direction = [0.3, 0.4, 0.85]
 
     # Placeholder knobs for next-step texture support.
-    enable_textures = False
+    enable_textures = True
     texture_filter_mode = "nearest"

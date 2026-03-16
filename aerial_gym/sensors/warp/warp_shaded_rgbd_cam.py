@@ -19,6 +19,11 @@ class WarpShadedRGBCam:
         self.mesh_ids_array = mesh_ids_array
         self.vertex_colors_array = None
         self.vertex_color_offsets = None
+        self.vertex_uvs = None
+        self.texture_image = None
+        self.texture_width = 0
+        self.texture_height = 0
+        self.base_color_factor = wp.vec3(1.0, 1.0, 1.0)
         self.width = self.cfg.width
         self.height = self.cfg.height
         self.horizontal_fov = math.radians(self.cfg.horizontal_fov_deg)
@@ -60,6 +65,13 @@ class WarpShadedRGBCam:
         self.vertex_colors_array = wp.from_torch(vertex_colors_array, dtype=wp.vec3)
         self.vertex_color_offsets = wp.from_torch(vertex_color_offsets, dtype=wp.int32)
 
+    def set_texture_buffers(self, vertex_uvs, texture_image, base_color_factor):
+        self.vertex_uvs = wp.from_torch(vertex_uvs, dtype=wp.vec2)
+        self.texture_image = wp.from_torch(texture_image, dtype=wp.vec3)
+        self.texture_height = int(texture_image.shape[0])
+        self.texture_width = int(texture_image.shape[1])
+        self.base_color_factor = wp.vec3(*base_color_factor.tolist())
+
     def set_pose_tensor(self, positions, orientations):
         self.camera_position_array = wp.from_torch(positions, dtype=wp.vec3)
         self.camera_orientation_array = wp.from_torch(orientations, dtype=wp.quat)
@@ -68,26 +80,51 @@ class WarpShadedRGBCam:
         if not debug:
             wp.capture_begin(device=self.device)
 
-        wp.launch(
-            kernel=ShadedRGBCameraWarpKernels.draw_shaded_rgbd_kernel,
-            dim=(self.num_envs, self.num_sensors, self.width, self.height),
-            inputs=[
-                self.mesh_ids_array,
-                self.camera_position_array,
-                self.camera_orientation_array,
-                self.K_inv,
-                self.far_plane,
-                self.rgb_pixels,
-                self.depth_pixels,
-                self.vertex_colors_array,
-                self.vertex_color_offsets,
-                self.ambient_strength,
-                self.light_dir_world,
-                self.c_x,
-                self.c_y,
-            ],
-            device=self.device,
-        )
+        if getattr(self.cfg, "enable_textures", False) and self.vertex_uvs is not None and self.texture_image is not None:
+            wp.launch(
+                kernel=ShadedRGBCameraWarpKernels.draw_textured_rgbd_kernel,
+                dim=(self.num_envs, self.num_sensors, self.width, self.height),
+                inputs=[
+                    self.mesh_ids_array,
+                    self.camera_position_array,
+                    self.camera_orientation_array,
+                    self.K_inv,
+                    self.far_plane,
+                    self.rgb_pixels,
+                    self.depth_pixels,
+                    self.vertex_uvs,
+                    self.texture_image,
+                    self.texture_width,
+                    self.texture_height,
+                    self.base_color_factor,
+                    self.ambient_strength,
+                    self.light_dir_world,
+                    self.c_x,
+                    self.c_y,
+                ],
+                device=self.device,
+            )
+        else:
+            wp.launch(
+                kernel=ShadedRGBCameraWarpKernels.draw_shaded_rgbd_kernel,
+                dim=(self.num_envs, self.num_sensors, self.width, self.height),
+                inputs=[
+                    self.mesh_ids_array,
+                    self.camera_position_array,
+                    self.camera_orientation_array,
+                    self.K_inv,
+                    self.far_plane,
+                    self.rgb_pixels,
+                    self.depth_pixels,
+                    self.vertex_colors_array,
+                    self.vertex_color_offsets,
+                    self.ambient_strength,
+                    self.light_dir_world,
+                    self.c_x,
+                    self.c_y,
+                ],
+                device=self.device,
+            )
 
         if not debug:
             self.graph = wp.capture_end(device=self.device)
