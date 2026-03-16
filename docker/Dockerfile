@@ -55,7 +55,7 @@ RUN conda run -n aerialgym conda install -y -c fvcore -c iopath -c conda-forge \
         urdfpy
 
 RUN conda run -n aerialgym pip3 install \
-    warp-lang==1.0.0 \
+    warp-lang==1.10.1 \
     trimesh \
     gymnasium \
     rl-games \

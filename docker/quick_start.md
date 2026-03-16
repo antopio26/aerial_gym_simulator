@@ -16,7 +16,7 @@ docker compose build
 
 This builds the `aerialgym:latest` image, which bundles:
 - Miniconda + Python 3.8
-- PyTorch 1.13.1 (CUDA 11.7), Warp 1.0.0, PyTorch3D 0.7.3
+- PyTorch 1.13.1 (CUDA 11.7), Warp 1.10.1, PyTorch3D 0.7.3
 - NVIDIA Isaac Gym Preview 4 (downloaded automatically)
 - All Python and system dependencies needed to run the examples
 

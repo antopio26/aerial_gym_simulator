@@ -15,7 +15,7 @@ setup(
         "numpy",
         "torch",
         "pytorch3d",
-        "warp-lang==1.0.0",
+        "warp-lang==1.10.1",
         "trimesh",
         "urdfpy",
         "numpy==1.23",

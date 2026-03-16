@@ -52,10 +52,25 @@ class ShadedRGBCameraWarpKernels:
             w = 1.0 - u - v
             uv = w * uv0 + u * uv1 + v * uv2
 
-            tex_u = int(wp.max(0.0, wp.min(float(texture_width - 1), uv[0] * float(texture_width - 1))))
-            tex_v = int(wp.max(0.0, wp.min(float(texture_height - 1), (1.0 - uv[1]) * float(texture_height - 1))))
-
-            albedo = texture_image[tex_v, tex_u]
+            # Bilinear texture sampling with V-flip (GLTF V-axis convention).
+            fu = wp.clamp(uv[0], 0.0, 1.0) * float(texture_width - 1)
+            fv = wp.clamp(1.0 - uv[1], 0.0, 1.0) * float(texture_height - 1)
+            x0 = int(wp.floor(fu))
+            y0 = int(wp.floor(fv))
+            x1 = wp.min(x0 + 1, texture_width - 1)
+            y1 = wp.min(y0 + 1, texture_height - 1)
+            tx = fu - float(x0)
+            ty = fv - float(y0)
+            c00 = texture_image[y0, x0]
+            c10 = texture_image[y0, x1]
+            c01 = texture_image[y1, x0]
+            c11 = texture_image[y1, x1]
+            albedo = (
+                (1.0 - tx) * (1.0 - ty) * c00
+                + tx * (1.0 - ty) * c10
+                + (1.0 - tx) * ty * c01
+                + tx * ty * c11
+            )
             albedo = wp.cw_mul(albedo, base_color_factor)
 
             n_hat = wp.normalize(n)
