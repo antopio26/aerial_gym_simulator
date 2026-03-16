@@ -49,7 +49,19 @@ class WarpSensor(BaseSensor):
             )
             logger.info("Camera sensor initialized")
             logger.debug(f"Sensor config: {self.cfg.__dict__}")
-        
+
+        elif self.cfg.sensor_type == "shaded_rgbd_camera":
+            from aerial_gym.sensors.warp.warp_shaded_rgbd_cam import WarpShadedRGBCam
+
+            self.sensor = WarpShadedRGBCam(
+                num_envs=self.num_envs,
+                config=self.cfg,
+                mesh_ids_array=self.mesh_ids_array,
+                device=self.device,
+            )
+            logger.info("Shaded RGBD camera sensor initialized")
+            logger.debug(f"Sensor config: {self.cfg.__dict__}")
+
         elif self.cfg.sensor_type == "stereo_camera":
             self.sensor = WarpStereoCam(
                 num_envs=self.num_envs,
@@ -136,12 +148,18 @@ class WarpSensor(BaseSensor):
             requires_grad=False,
         )
         self.sensor_orientation[..., 3] = 1.0
-        self.sensor.set_pose_tensor(
-            positions=self.sensor_position, orientations=self.sensor_orientation
-        )
-        self.sensor.set_image_tensors(
-            pixels=self.pixels, segmentation_pixels=self.segmentation_pixels
-        )
+        self.sensor.set_pose_tensor(positions=self.sensor_position, orientations=self.sensor_orientation)
+        if self.cfg.sensor_type == "shaded_rgbd_camera":
+            self.rgb_pixels = global_tensor_dict["rgb_pixels"]
+            self.sensor.set_image_tensors(rgb_pixels=self.rgb_pixels, depth_pixels=self.pixels)
+            self.sensor.set_vertex_color_buffers(
+                global_tensor_dict["CONST_GLOBAL_VERTEX_COLOR_TENSOR"],
+                global_tensor_dict["CONST_GLOBAL_VERTEX_COLOR_OFFSETS"],
+            )
+        else:
+            self.sensor.set_image_tensors(
+                pixels=self.pixels, segmentation_pixels=self.segmentation_pixels
+            )
         self.reset()
 
         logger.debug(f"[DONE] Initializing sensor tensors")
@@ -195,7 +213,7 @@ class WarpSensor(BaseSensor):
         # logger.debug("[DONE] Capturing sensor data")
 
         self.apply_noise()
-        if self.cfg.sensor_type in ["camera", "lidar", "stereo_camera"]:
+        if self.cfg.sensor_type in ["camera", "lidar", "stereo_camera", "shaded_rgbd_camera"]:
             self.apply_range_limits()
             self.normalize_observation()
 
@@ -247,4 +265,6 @@ class WarpSensor(BaseSensor):
             ] = self.cfg.near_out_of_range_value
 
     def get_observation(self):
+        if self.cfg.sensor_type == "shaded_rgbd_camera":
+            return self.pixels, self.rgb_pixels
         return self.pixels, self.segmentation_pixels

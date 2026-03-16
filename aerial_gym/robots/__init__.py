@@ -57,6 +57,7 @@ robot_registry.register("base_quadrotor_with_camera_imu", BaseMultirotor, BaseQu
 robot_registry.register("base_quadrotor_with_lidar", BaseMultirotor, BaseQuadWithLidarCfg)
 robot_registry.register("base_quadrotor_with_faceid_normal_camera", BaseMultirotor, BaseQuadWithFaceIDNormalCameraCfg)
 robot_registry.register("base_quadrotor_with_stereo_camera", BaseMultirotor, BaseQuadWithStereoCameraCfg)
+robot_registry.register("base_quadrotor_with_shaded_rgbd_camera", BaseMultirotor, BaseQuadWithShadedRGBDCameraCfg)
 
 robot_registry.register("tinyprop", BaseMultirotor, TinyPropCfg)
 

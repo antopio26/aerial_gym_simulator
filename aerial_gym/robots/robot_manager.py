@@ -228,6 +228,20 @@ class RobotManagerIGE(BaseManager):
                         )
                     self.global_tensor_dict["depth_range_pixels"] = self.image_tensor
 
+                    if self.warp_sensor_config.sensor_type == "shaded_rgbd_camera":
+                        self.rgb_image_tensor = torch.zeros(
+                            (
+                                self.num_envs,
+                                self.warp_sensor_config.num_sensors,
+                                self.warp_sensor_config.height,
+                                self.warp_sensor_config.width,
+                                3,
+                            ),
+                            device=self.device,
+                            requires_grad=False,
+                        )
+                        self.global_tensor_dict["rgb_pixels"] = self.rgb_image_tensor
+
                     if self.warp_sensor_config.segmentation_camera:
                         self.segmentation_tensor = torch.zeros(
                             (

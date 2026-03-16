@@ -105,6 +105,8 @@ class WarpEnv(BaseManager):
             self.global_tensor_dict["CONST_WARP_MESH_PER_ENV"] = None
             self.global_tensor_dict["CONST_GLOBAL_VERTEX_TO_ASSET_INDEX_TENSOR"] = None
             self.global_tensor_dict["VERTEX_MAPS_PER_ENV_ORIGINAL"] = None
+            self.global_tensor_dict["CONST_GLOBAL_VERTEX_COLOR_TENSOR"] = None
+            self.global_tensor_dict["CONST_GLOBAL_VERTEX_COLOR_OFFSETS"] = None
             return 1
 
         self.global_vertex_to_asset_index_tensor = torch.tensor(
@@ -123,6 +125,39 @@ class WarpEnv(BaseManager):
         for i in range(len(self.env_meshes)):
             self.global_env_mesh_list.append(tm.util.concatenate(self.env_meshes[i]))
         logger.debug("[DONE] Unifying environment meshes")
+
+        # Build one contiguous RGB buffer aligned with the per-env unified mesh vertices.
+        global_vertex_color_list = []
+        global_vertex_color_offsets = []
+        color_vertex_offset = 0
+        for env_mesh in self.global_env_mesh_list:
+            global_vertex_color_offsets.append(color_vertex_offset)
+            vertex_colors = None
+            if hasattr(env_mesh, "visual") and hasattr(env_mesh.visual, "vertex_colors"):
+                vertex_colors = env_mesh.visual.vertex_colors
+
+            if vertex_colors is not None and len(vertex_colors) == len(env_mesh.vertices):
+                colors = np.asarray(vertex_colors[:, :3], dtype=np.float32) / 255.0
+            else:
+                colors = np.ones((len(env_mesh.vertices), 3), dtype=np.float32)
+
+            global_vertex_color_list.append(colors)
+            color_vertex_offset += len(env_mesh.vertices)
+
+        self.global_vertex_color_tensor = torch.tensor(
+            np.concatenate(global_vertex_color_list, axis=0),
+            device=self.device,
+            dtype=torch.float32,
+            requires_grad=False,
+        )
+        self.global_vertex_color_offsets = torch.tensor(
+            global_vertex_color_offsets,
+            device=self.device,
+            dtype=torch.int32,
+            requires_grad=False,
+        )
+        self.global_tensor_dict["CONST_GLOBAL_VERTEX_COLOR_TENSOR"] = self.global_vertex_color_tensor
+        self.global_tensor_dict["CONST_GLOBAL_VERTEX_COLOR_OFFSETS"] = self.global_vertex_color_offsets
 
         # prepare warp meshes
         logger.debug("Creating warp meshes")
