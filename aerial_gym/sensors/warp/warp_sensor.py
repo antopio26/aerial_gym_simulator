@@ -155,6 +155,7 @@ class WarpSensor(BaseSensor):
             if global_tensor_dict.get("CONST_WARP_TEXTURE_IMAGE_TENSOR", None) is not None:
                 self.sensor.set_texture_buffers(
                     global_tensor_dict["CONST_WARP_TEXTURE_UV_TENSOR"],
+                    global_tensor_dict["CONST_WARP_TEXTURE_VERTEX_NORMAL_TENSOR"],
                     global_tensor_dict["CONST_WARP_TEXTURE_IMAGE_TENSOR"],
                     global_tensor_dict["CONST_WARP_TEXTURE_BASE_COLOR_FACTOR"],
                 )

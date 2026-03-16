@@ -123,7 +123,13 @@ class WarpEnv(BaseManager):
                 device=self.device,
                 dtype=torch.float32,
                 requires_grad=False,
-            )
+            ).contiguous()
+            self.global_tensor_dict["CONST_WARP_TEXTURE_VERTEX_NORMAL_TENSOR"] = torch.tensor(
+                self.static_scene.render_vertex_normals,
+                device=self.device,
+                dtype=torch.float32,
+                requires_grad=False,
+            ).contiguous()
             self.global_tensor_dict["CONST_WARP_VERTEX_COLOR_TENSOR"] = torch.tensor(
                 self.static_scene.vertex_colors,
                 device=self.device,
@@ -190,6 +196,7 @@ class WarpEnv(BaseManager):
             self.global_tensor_dict["CONST_GLOBAL_VERTEX_COLOR_OFFSETS"] = None
             self.global_tensor_dict["CONST_WARP_TEXTURE_IMAGE_TENSOR"] = None
             self.global_tensor_dict["CONST_WARP_TEXTURE_UV_TENSOR"] = None
+            self.global_tensor_dict["CONST_WARP_TEXTURE_VERTEX_NORMAL_TENSOR"] = None
             self.global_tensor_dict["CONST_WARP_VERTEX_COLOR_TENSOR"] = None
             self.global_tensor_dict["CONST_WARP_TEXTURE_BASE_COLOR_FACTOR"] = None
             return 1

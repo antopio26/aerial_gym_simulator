@@ -20,6 +20,7 @@ class WarpShadedRGBCam:
         self.vertex_colors_array = None
         self.vertex_color_offsets = None
         self.vertex_uvs = None
+        self.vertex_normals = None
         self.texture_image = None
         self.texture_width = 0
         self.texture_height = 0
@@ -30,6 +31,8 @@ class WarpShadedRGBCam:
         self.far_plane = self.cfg.max_range
         self.ambient_strength = float(getattr(self.cfg, "ambient_strength", 0.2))
         self.light_dir_world = wp.vec3(*getattr(self.cfg, "light_direction", [0.0, 0.0, 1.0]))
+        self.enable_lighting = int(getattr(self.cfg, "enable_lighting", True))
+        self.debug_uv_checker = int(getattr(self.cfg, "debug_uv_checker", False))
         self.device = device
         self.camera_position_array = None
         self.camera_orientation_array = None
@@ -65,9 +68,10 @@ class WarpShadedRGBCam:
         self.vertex_colors_array = wp.from_torch(vertex_colors_array, dtype=wp.vec3)
         self.vertex_color_offsets = wp.from_torch(vertex_color_offsets, dtype=wp.int32)
 
-    def set_texture_buffers(self, vertex_uvs, texture_image, base_color_factor):
-        self.vertex_uvs = wp.from_torch(vertex_uvs, dtype=wp.vec2)
-        self.texture_image = wp.from_torch(texture_image, dtype=wp.vec3)
+    def set_texture_buffers(self, vertex_uvs, vertex_normals, texture_image, base_color_factor):
+        self.vertex_uvs = wp.from_torch(vertex_uvs.contiguous(), dtype=wp.vec2)
+        self.vertex_normals = wp.from_torch(vertex_normals.contiguous(), dtype=wp.vec3)
+        self.texture_image = wp.from_torch(texture_image.contiguous(), dtype=wp.vec3)
         self.texture_height = int(texture_image.shape[0])
         self.texture_width = int(texture_image.shape[1])
         self.base_color_factor = wp.vec3(*base_color_factor.tolist())
@@ -93,10 +97,13 @@ class WarpShadedRGBCam:
                     self.rgb_pixels,
                     self.depth_pixels,
                     self.vertex_uvs,
+                    self.vertex_normals,
                     self.texture_image,
                     self.texture_width,
                     self.texture_height,
                     self.base_color_factor,
+                    self.enable_lighting,
+                    self.debug_uv_checker,
                     self.ambient_strength,
                     self.light_dir_world,
                     self.c_x,
@@ -118,6 +125,7 @@ class WarpShadedRGBCam:
                     self.depth_pixels,
                     self.vertex_colors_array,
                     self.vertex_color_offsets,
+                    self.enable_lighting,
                     self.ambient_strength,
                     self.light_dir_world,
                     self.c_x,

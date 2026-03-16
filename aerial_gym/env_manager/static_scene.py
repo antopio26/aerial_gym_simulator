@@ -27,8 +27,9 @@ class StaticSceneGLB:
         self.file_path = self.cfg.file
         self.enable_texture_rendering = getattr(self.cfg, "enable_texture_rendering", True)
         self.tile_size = int(getattr(self.cfg, "texture_atlas_tile_size", 2048))
+        self.tile_pad = int(getattr(self.cfg, "texture_atlas_tile_padding", 2))
 
-        render_verts, render_faces, render_uvs, atlas, vcols = self._load_and_build(
+        render_verts, render_faces, render_uvs, atlas, vcols, vnormals = self._load_and_build(
             self.file_path
         )
         self.render_vertices = render_verts                # (V, 3) float32
@@ -37,10 +38,11 @@ class StaticSceneGLB:
         self.texture_image = atlas                         # (H, W, 3) uint8 or None
         self.base_color_factor = np.array([1.0, 1.0, 1.0], dtype=np.float32)
         self.vertex_colors = vcols                         # (V, 3) float32
+        self.render_vertex_normals = vnormals              # (V, 3) float32
 
         collision_file = getattr(self.cfg, "collision_file", None)
         if collision_file is not None:
-            c_v, c_f, _, _, _ = self._load_and_build(collision_file)
+            c_v, c_f, _, _, _, _ = self._load_and_build(collision_file)
         else:
             c_v, c_f = render_verts, render_faces
         self.collision_vertices = c_v.astype(np.float32)
@@ -81,6 +83,7 @@ class StaticSceneGLB:
 
     def _build_textured(self, geoms):
         tile_size = self.tile_size
+        tile_pad = self.tile_pad
 
         # Pass 1: collect unique textures keyed by MD5 content hash
         hash_to_idx = {}
@@ -111,11 +114,26 @@ class StaticSceneGLB:
         if n > 0:
             cols = int(math.ceil(math.sqrt(n)))
             rows = int(math.ceil(n / cols))
-            atlas = np.zeros((rows * tile_size, cols * tile_size, 3), dtype=np.uint8)
+            stride = tile_size + 2 * tile_pad
+            atlas = np.zeros((rows * stride, cols * stride, 3), dtype=np.uint8)
             for idx, tile in enumerate(unique_tiles):
                 r, c = divmod(idx, cols)
-                atlas[r * tile_size:(r + 1) * tile_size,
-                      c * tile_size:(c + 1) * tile_size] = tile
+                y0 = r * stride
+                x0 = c * stride
+                inner_y0 = y0 + tile_pad
+                inner_x0 = x0 + tile_pad
+                atlas[inner_y0:inner_y0 + tile_size, inner_x0:inner_x0 + tile_size] = tile
+
+                # Replicate edge texels into a gutter so bilinear filtering cannot bleed
+                # across neighboring atlas tiles.
+                atlas[inner_y0:inner_y0 + tile_size, x0:inner_x0] = tile[:, :1]
+                atlas[inner_y0:inner_y0 + tile_size, inner_x0 + tile_size:x0 + stride] = tile[:, -1:]
+                atlas[y0:inner_y0, inner_x0:inner_x0 + tile_size] = tile[:1, :]
+                atlas[inner_y0 + tile_size:y0 + stride, inner_x0:inner_x0 + tile_size] = tile[-1:, :]
+                atlas[y0:inner_y0, x0:inner_x0] = tile[:1, :1]
+                atlas[y0:inner_y0, inner_x0 + tile_size:x0 + stride] = tile[:1, -1:]
+                atlas[inner_y0 + tile_size:y0 + stride, x0:inner_x0] = tile[-1:, :1]
+                atlas[inner_y0 + tile_size:y0 + stride, inner_x0 + tile_size:x0 + stride] = tile[-1:, -1:]
             print(
                 f"[StaticSceneGLB] {len(geoms)} submeshes -> {n} unique textures "
                 f"-> {cols}x{rows} grid at {tile_size} px/tile "
@@ -124,58 +142,65 @@ class StaticSceneGLB:
                 f"~{atlas.nbytes * 4 // (1024 * 1024)} MB float32 on GPU)"
             )
 
-        # Pass 2: merge vertices and remap UVs.
-        # The Warp kernel reads:  pixel_row = (1 - atlas_v) * atlas_H
-        # Tile idx stored at grid row r occupies atlas rows [r*T, (r+1)*T).
-        # For GLTF v_orig (v=0 -> bottom, v=1 -> top of visible image):
-        #   desired pixel_row = r*T + (1 - v_orig)*T
-        #   (1 - atlas_v) * rows*T = (r + 1 - v_orig)*T
-        #   atlas_v = (rows - 1 - r + v_orig) / rows
-        all_v, all_f, all_uv = [], [], []
+        atlas_h = int(atlas.shape[0]) if atlas is not None else 1
+        atlas_w = int(atlas.shape[1]) if atlas is not None else 1
+        stride = tile_size + 2 * tile_pad
+
+        # Pass 2: merge vertices and remap UVs into padded tile interiors.
+        all_v, all_f, all_uv, all_vn = [], [], [], []
         v_off = 0
         for i, g in enumerate(geoms):
             v = np.asarray(g.vertices, dtype=np.float32)
             f = np.asarray(g.faces, dtype=np.int32) + v_off
             uv = self._geom_uvs(g)
+            vn = self._geom_vnormals(g)
             tidx = submesh_tile[i]
             if tidx >= 0 and n > 0:
                 r, c = divmod(tidx, cols)
-                u_a = (c + uv[:, 0] % 1.0) / cols
-                v_a = (rows - 1 - r + uv[:, 1] % 1.0) / rows
+                uv_clamped = np.clip(uv, 0.0, 1.0)
+                tex_x = c * stride + tile_pad + uv_clamped[:, 0] * (tile_size - 1)
+                tex_y = r * stride + tile_pad + (1.0 - uv_clamped[:, 1]) * (tile_size - 1)
+                u_a = tex_x / max(1, atlas_w - 1)
+                v_a = 1.0 - tex_y / max(1, atlas_h - 1)
                 uv_out = np.stack([u_a, v_a], axis=1).astype(np.float32)
             else:
                 uv_out = np.zeros((len(v), 2), dtype=np.float32)
             all_v.append(v)
             all_f.append(f)
             all_uv.append(uv_out)
+            all_vn.append(vn)
             v_off += len(v)
 
         verts = np.concatenate(all_v)
         faces = np.concatenate(all_f)
-        uvs   = np.concatenate(all_uv)
+        uvs   = np.ascontiguousarray(np.concatenate(all_uv), dtype=np.float32)
         vcols = np.ones((len(verts), 3), dtype=np.float32)
-        return verts, faces, uvs, atlas, vcols
+        vnormals = np.ascontiguousarray(np.concatenate(all_vn), dtype=np.float32)
+        return verts, faces, uvs, atlas, vcols, vnormals
 
     # ------------------------------------------------------------------
     # Vertex-colour fallback (no textures)
     # ------------------------------------------------------------------
 
     def _build_vertex_color(self, geoms):
-        all_v, all_f, all_vc = [], [], []
+        all_v, all_f, all_vc, all_vn = [], [], [], []
         v_off = 0
         for g in geoms:
             v  = np.asarray(g.vertices, dtype=np.float32)
             f  = np.asarray(g.faces, dtype=np.int32) + v_off
             vc = self._geom_vcols(g)
+            vn = self._geom_vnormals(g)
             all_v.append(v)
             all_f.append(f)
             all_vc.append(vc)
+            all_vn.append(vn)
             v_off += len(v)
         verts = np.concatenate(all_v)
         faces = np.concatenate(all_f)
         uvs   = np.zeros((len(verts), 2), dtype=np.float32)
         vcols = np.concatenate(all_vc)
-        return verts, faces, uvs, None, vcols
+        vnormals = np.ascontiguousarray(np.concatenate(all_vn), dtype=np.float32)
+        return verts, faces, uvs, None, vcols, vnormals
 
     # ------------------------------------------------------------------
     # Per-geometry helpers
@@ -200,3 +225,13 @@ class StaticSceneGLB:
                 f /= 255.0
             return np.broadcast_to(f, (len(g.vertices), 3)).copy()
         return np.ones((len(g.vertices), 3), dtype=np.float32)
+
+    def _geom_vnormals(self, g):
+        vn = np.asarray(g.vertex_normals, dtype=np.float32)
+        if len(vn) != len(g.vertices):
+            vn = np.zeros((len(g.vertices), 3), dtype=np.float32)
+            vn[:, 2] = 1.0
+            return vn
+        norm = np.linalg.norm(vn, axis=1, keepdims=True)
+        norm = np.clip(norm, 1.0e-8, None)
+        return vn / norm

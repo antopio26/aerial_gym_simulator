@@ -13,10 +13,13 @@ class ShadedRGBCameraWarpKernels:
         rgb_pixels: wp.array(dtype=wp.vec3, ndim=4),
         depth_pixels: wp.array(dtype=float, ndim=4),
         vertex_uvs: wp.array(dtype=wp.vec2),
+        vertex_normals: wp.array(dtype=wp.vec3),
         texture_image: wp.array(dtype=wp.vec3, ndim=2),
         texture_width: int,
         texture_height: int,
         base_color_factor: wp.vec3,
+        enable_lighting: int,
+        debug_uv_checker: int,
         ambient_strength: float,
         light_dir_world: wp.vec3,
         c_x: int,
@@ -49,8 +52,12 @@ class ShadedRGBCameraWarpKernels:
             uv0 = vertex_uvs[idx0]
             uv1 = vertex_uvs[idx1]
             uv2 = vertex_uvs[idx2]
+            n0 = vertex_normals[idx0]
+            n1 = vertex_normals[idx1]
+            n2 = vertex_normals[idx2]
             w = 1.0 - u - v
             uv = w * uv0 + u * uv1 + v * uv2
+            shading_normal = wp.normalize(w * n0 + u * n1 + v * n2)
 
             # Bilinear texture sampling with V-flip (GLTF V-axis convention).
             fu = wp.clamp(uv[0], 0.0, 1.0) * float(texture_width - 1)
@@ -73,11 +80,20 @@ class ShadedRGBCameraWarpKernels:
             )
             albedo = wp.cw_mul(albedo, base_color_factor)
 
-            n_hat = wp.normalize(n)
-            l_hat = wp.normalize(light_dir_world)
-            lambert = wp.max(wp.dot(n_hat, l_hat), 0.0)
-            lit = ambient_strength + (1.0 - ambient_strength) * lambert
-            color = lit * albedo
+            if debug_uv_checker != 0:
+                checker_u = int(wp.floor(uv[0] * 24.0))
+                checker_v = int(wp.floor(uv[1] * 24.0))
+                if (checker_u + checker_v) % 2 == 0:
+                    color = wp.vec3(0.95, 0.95, 0.95)
+                else:
+                    color = wp.vec3(0.10, 0.10, 0.10)
+            elif enable_lighting != 0:
+                l_hat = wp.normalize(light_dir_world)
+                lambert = wp.max(wp.dot(shading_normal, l_hat), 0.0)
+                lit = ambient_strength + (1.0 - ambient_strength) * lambert
+                color = lit * albedo
+            else:
+                color = albedo
 
         rgb_pixels[env_id, cam_id, y, x] = color
         depth_pixels[env_id, cam_id, y, x] = dist
@@ -94,6 +110,7 @@ class ShadedRGBCameraWarpKernels:
         depth_pixels: wp.array(dtype=float, ndim=4),
         vertex_colors: wp.array(dtype=wp.vec3),
         vertex_color_offsets: wp.array(dtype=wp.int32),
+        enable_lighting: int,
         ambient_strength: float,
         light_dir_world: wp.vec3,
         c_x: int,
@@ -132,11 +149,14 @@ class ShadedRGBCameraWarpKernels:
             w = 1.0 - u - v
             albedo = w * c0 + u * c1 + v * c2
 
-            n_hat = wp.normalize(n)
-            l_hat = wp.normalize(light_dir_world)
-            lambert = wp.max(wp.dot(n_hat, l_hat), 0.0)
-            lit = ambient_strength + (1.0 - ambient_strength) * lambert
-            color = lit * albedo
+            if enable_lighting != 0:
+                n_hat = wp.normalize(n)
+                l_hat = wp.normalize(light_dir_world)
+                lambert = wp.max(wp.dot(n_hat, l_hat), 0.0)
+                lit = ambient_strength + (1.0 - ambient_strength) * lambert
+                color = lit * albedo
+            else:
+                color = albedo
 
         rgb_pixels[env_id, cam_id, y, x] = color
         depth_pixels[env_id, cam_id, y, x] = dist

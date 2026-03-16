@@ -8,6 +8,10 @@ from aerial_gym.sim.sim_builder import SimBuilder
 from aerial_gym.utils.logging import CustomLogger
 import torch
 
+from aerial_gym.config.sensor_config.camera_config.shaded_rgbd_camera_config import (
+    ShadedRGBDCameraConfig,
+)
+
 
 logger = CustomLogger(__name__)
 
@@ -18,6 +22,15 @@ if __name__ == "__main__":
     num_steps = int(os.getenv("AERIAL_GYM_DEMO_STEPS", "600"))
     capture_every = int(os.getenv("AERIAL_GYM_DEMO_CAPTURE_EVERY", "4"))
     headless = os.getenv("AERIAL_GYM_DEMO_HEADLESS", "0") == "1"
+    enable_lighting = os.getenv("AERIAL_GYM_TEXTURE_LIGHTING", "0") == "1"
+    debug_uv_checker = os.getenv("AERIAL_GYM_DEBUG_UV_CHECKER", "0") == "1"
+
+    ShadedRGBDCameraConfig.enable_lighting = enable_lighting
+    ShadedRGBDCameraConfig.debug_uv_checker = debug_uv_checker
+    if debug_uv_checker:
+        mode_name = "uv_checker"
+    else:
+        mode_name = "lit" if enable_lighting else "texture_only"
 
     seed = 0
     random.seed(seed)
@@ -60,7 +73,7 @@ if __name__ == "__main__":
 
     out_dir = os.path.join(os.path.dirname(__file__), "stored_data")
     os.makedirs(out_dir, exist_ok=True)
-    gif_path = os.path.join(out_dir, "matterport_glb_viewer_demo.gif")
+    gif_path = os.path.join(out_dir, f"matterport_glb_viewer_demo_{mode_name}.gif")
 
     if len(rgb_frames) == 0:
         raise RuntimeError("No RGB frames were captured during the viewer demo.")

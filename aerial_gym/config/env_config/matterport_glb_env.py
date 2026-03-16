@@ -38,6 +38,7 @@ class MatterportGLBEnvCfg:
         # 41 unique tiles at 2048px → 7×6 atlas ~14336×12288 (~2 GB float32 GPU).
         # Lower to 1024 to reduce to ~530 MB, or 512 for ~132 MB.
         texture_atlas_tile_size = 2048
+        texture_atlas_tile_padding = 2
         collision_static_friction = 1.0
         collision_dynamic_friction = 1.0
         collision_restitution = 0.0

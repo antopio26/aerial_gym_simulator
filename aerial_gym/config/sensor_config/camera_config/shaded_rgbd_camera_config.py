@@ -11,9 +11,10 @@ class ShadedRGBDCameraConfig(BaseDepthCameraConfig):
     calculate_depth = True
 
     # Simple directional lighting controls for the first implementation.
+    enable_lighting = True
     ambient_strength = 0.2
     light_direction = [0.3, 0.4, 0.85]
 
-    # Placeholder knobs for next-step texture support.
     enable_textures = True
-    texture_filter_mode = "nearest"
+    texture_filter_mode = "bilinear"
+    debug_uv_checker = False
