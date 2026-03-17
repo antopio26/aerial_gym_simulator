@@ -109,12 +109,14 @@ class WarpEnv(BaseManager):
         if self.static_scene is not None:
             texture_image = self.static_scene.texture_image
             if texture_image is not None:
+                # Store atlas as uint8 to save ~4x GPU memory (~505 MB vs ~2023 MB).
+                # The Warp kernel converts to float inline at sample time.
                 self.global_tensor_dict["CONST_WARP_TEXTURE_IMAGE_TENSOR"] = torch.tensor(
                     texture_image,
                     device=self.device,
-                    dtype=torch.float32,
+                    dtype=torch.uint8,
                     requires_grad=False,
-                ) / 255.0
+                )
             else:
                 self.global_tensor_dict["CONST_WARP_TEXTURE_IMAGE_TENSOR"] = None
 

@@ -19,7 +19,7 @@ logger = CustomLogger(__name__)
 if __name__ == "__main__":
     logger.warning("Running Matterport GLB viewer demo with moving quadrotor.")
 
-    num_steps = int(os.getenv("AERIAL_GYM_DEMO_STEPS", "600"))
+    num_steps = int(os.getenv("AERIAL_GYM_DEMO_STEPS", "1200"))
     capture_every = int(os.getenv("AERIAL_GYM_DEMO_CAPTURE_EVERY", "4"))
     headless = os.getenv("AERIAL_GYM_DEMO_HEADLESS", "0") == "1"
     enable_lighting = os.getenv("AERIAL_GYM_TEXTURE_LIGHTING", "0") == "1"

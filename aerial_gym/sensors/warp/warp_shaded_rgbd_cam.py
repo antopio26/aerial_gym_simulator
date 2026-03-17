@@ -33,6 +33,8 @@ class WarpShadedRGBCam:
         self.light_dir_world = wp.vec3(*getattr(self.cfg, "light_direction", [0.0, 0.0, 1.0]))
         self.enable_lighting = int(getattr(self.cfg, "enable_lighting", True))
         self.debug_uv_checker = int(getattr(self.cfg, "debug_uv_checker", False))
+        self.uv_bary_mode = int(getattr(self.cfg, "uv_bary_mode", 0))
+        self.uv_transform_mode = int(getattr(self.cfg, "uv_transform_mode", 0))
         self.device = device
         self.camera_position_array = None
         self.camera_orientation_array = None
@@ -71,7 +73,8 @@ class WarpShadedRGBCam:
     def set_texture_buffers(self, vertex_uvs, vertex_normals, texture_image, base_color_factor):
         self.vertex_uvs = wp.from_torch(vertex_uvs.contiguous(), dtype=wp.vec2)
         self.vertex_normals = wp.from_torch(vertex_normals.contiguous(), dtype=wp.vec3)
-        self.texture_image = wp.from_torch(texture_image.contiguous(), dtype=wp.vec3)
+        # texture_image is (H, W, 3) uint8; expose as a 3-D uint8 warp array.
+        self.texture_image = wp.from_torch(texture_image.contiguous(), dtype=wp.uint8)
         self.texture_height = int(texture_image.shape[0])
         self.texture_width = int(texture_image.shape[1])
         self.base_color_factor = wp.vec3(*base_color_factor.tolist())
@@ -104,6 +107,8 @@ class WarpShadedRGBCam:
                     self.base_color_factor,
                     self.enable_lighting,
                     self.debug_uv_checker,
+                    self.uv_bary_mode,
+                    self.uv_transform_mode,
                     self.ambient_strength,
                     self.light_dir_world,
                     self.c_x,

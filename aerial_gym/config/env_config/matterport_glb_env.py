@@ -29,7 +29,7 @@ class MatterportGLBEnvCfg:
 
     class static_scene:
         enable = True
-        file = "resources/envs/TEEsavR23oF.glb"
+        file = "resources/envs/HaxA7YrQdEC.glb"
         collision_file = None
         scale = 1.0
         translation = [0.0, 0.0, 0.0]
