@@ -1,0 +1,8 @@
+- [ ] Benchmarking
+- [ ] Cleanup code and improve performance
+    - [ ] Check for big memory consumption issue
+    - [ ] Check for uint8 to float conversion in texture query
+- [ ] Fix camera range limits
+- [ ] Fix mesh collision logic
+- [ ] Look at navmesh decoding from Habitat
+- [ ] Use decoded navmesh to generate spawnpoints and object placements

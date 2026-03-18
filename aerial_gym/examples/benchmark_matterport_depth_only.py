@@ -13,14 +13,9 @@ from PIL import Image
 from aerial_gym.config.sensor_config.camera_config.base_depth_camera_config import (
     BaseDepthCameraConfig,
 )
-from aerial_gym.config.env_config.matterport_glb_env import MatterportGLBEnvCfg
-from aerial_gym.config.sensor_config.camera_config.shaded_rgbd_camera_config import (
-    ShadedRGBDCameraConfig,
-)
 from aerial_gym.sim.sim_builder import SimBuilder
 from aerial_gym.utils.logging import CustomLogger
 import torch
-import trimesh as tm
 
 
 logger = CustomLogger(__name__)
@@ -37,21 +32,6 @@ def _parse_env_counts(raw: str):
     return counts
 
 
-def _configure_camera_classes(width: int, height: int, max_range: float, enable_lighting: bool):
-    # Keep both camera pipelines at identical resolution/range for fair benchmarking.
-    BaseDepthCameraConfig.width = width
-    BaseDepthCameraConfig.height = height
-    BaseDepthCameraConfig.max_range = max_range
-    BaseDepthCameraConfig.segmentation_camera = False
-    BaseDepthCameraConfig.calculate_depth = True
-
-    ShadedRGBDCameraConfig.width = width
-    ShadedRGBDCameraConfig.height = height
-    ShadedRGBDCameraConfig.max_range = max_range
-    ShadedRGBDCameraConfig.enable_lighting = enable_lighting
-    ShadedRGBDCameraConfig.debug_uv_checker = False
-
-
 def _parse_vec3(raw: str, name: str) -> np.ndarray:
     vals = [v.strip() for v in raw.split(",") if v.strip() != ""]
     if len(vals) != 3:
@@ -59,32 +39,22 @@ def _parse_vec3(raw: str, name: str) -> np.ndarray:
     return np.array([float(vals[0]), float(vals[1]), float(vals[2])], dtype=np.float32)
 
 
-def _apply_spawn_region_from_env(cfg_cls, prefix: str):
+def _configure_depth_camera_class(width: int, height: int, max_range: float):
+    BaseDepthCameraConfig.width = width
+    BaseDepthCameraConfig.height = height
+    BaseDepthCameraConfig.max_range = max_range
+    BaseDepthCameraConfig.segmentation_camera = False
+    BaseDepthCameraConfig.calculate_depth = True
+
+
+def _apply_spawn_region_from_env(env_name: str, prefix: str):
+    # Import lazily to avoid registry-order issues and keep script standalone.
+    import aerial_gym.env_manager  # noqa: F401
+    from aerial_gym.registry.env_registry import env_config_registry
+
+    cfg_cls = env_config_registry.get_env_config(env_name)
     lower = None
     upper = None
-
-    if os.getenv(f"{prefix}_SPAWN_FROM_SCENE_BOUNDS", "0") == "1":
-        scene_file = cfg_cls.static_scene.file
-        scene = tm.load(scene_file, force="scene")
-        b = np.asarray(scene.bounds, dtype=np.float32)
-        scale = float(getattr(cfg_cls.static_scene, "scale", 1.0))
-        translation = np.asarray(
-            getattr(cfg_cls.static_scene, "translation", [0.0, 0.0, 0.0]), dtype=np.float32
-        )
-        b = b * scale + translation[None, :]
-
-        xy_margin = float(os.getenv(f"{prefix}_SCENE_XY_MARGIN", "0.4"))
-        z_min_offset = float(os.getenv(f"{prefix}_SCENE_Z_MIN_OFFSET", "1.0"))
-        z_max_offset = float(os.getenv(f"{prefix}_SCENE_Z_MAX_OFFSET", "0.6"))
-
-        lower = np.array(
-            [b[0, 0] + xy_margin, b[0, 1] + xy_margin, b[0, 2] + z_min_offset],
-            dtype=np.float32,
-        )
-        upper = np.array(
-            [b[1, 0] - xy_margin, b[1, 1] - xy_margin, b[1, 2] + z_max_offset],
-            dtype=np.float32,
-        )
 
     center_raw = os.getenv(f"{prefix}_SPAWN_CENTER", None)
     bounds_raw = os.getenv(f"{prefix}_SPAWN_BOUNDS", os.getenv(f"{prefix}_SPAWN_HALF_EXTENTS", None))
@@ -114,11 +84,12 @@ def _apply_spawn_region_from_env(cfg_cls, prefix: str):
     cfg_cls.env.upper_bound_max = upper.tolist()
 
     logger.warning(
-        "Configured benchmark spawn region from %s: lower=%s upper=%s",
+        "Configured spawn region from %s: lower=%s upper=%s",
         prefix,
         np.array2string(lower, precision=3),
         np.array2string(upper, precision=3),
     )
+
     return {
         "lower": lower.tolist(),
         "upper": upper.tolist(),
@@ -140,45 +111,34 @@ def _tile_images_grid(images_u8: np.ndarray) -> np.ndarray:
 
 
 def _collect_grid_frame(env_manager) -> Image.Image:
-    rgb_tensor = env_manager.global_tensor_dict.get("rgb_pixels", None)
-    if rgb_tensor is not None:
-        rgb = rgb_tensor[:, 0].detach().cpu().numpy()  # (N, H, W, 3)
-        rgb_u8 = np.clip(rgb * 255.0, 0.0, 255.0).astype(np.uint8)
-        grid_u8 = _tile_images_grid(rgb_u8)
-        return Image.fromarray(grid_u8)
-
     depth_tensor = env_manager.global_tensor_dict.get("depth_range_pixels", None)
-    if depth_tensor is not None:
-        depth = depth_tensor[:, 0].detach().cpu().numpy()  # (N, H, W)
-        finite = np.isfinite(depth)
-        if np.any(finite):
-            d_min = float(np.min(depth[finite]))
-            d_max = float(np.max(depth[finite]))
-            if d_max - d_min > 1.0e-6:
-                depth_norm = (depth - d_min) / (d_max - d_min)
-            else:
-                depth_norm = np.zeros_like(depth, dtype=np.float32)
+    if depth_tensor is None:
+        raise RuntimeError("depth_range_pixels is unavailable; ensure depth camera is enabled.")
+
+    depth = depth_tensor[:, 0].detach().cpu().numpy()  # (N, H, W)
+    finite = np.isfinite(depth)
+    if np.any(finite):
+        d_min = float(np.min(depth[finite]))
+        d_max = float(np.max(depth[finite]))
+        if d_max - d_min > 1.0e-6:
+            depth_norm = (depth - d_min) / (d_max - d_min)
         else:
             depth_norm = np.zeros_like(depth, dtype=np.float32)
-        depth_u8 = np.clip(depth_norm * 255.0, 0.0, 255.0).astype(np.uint8)
-        depth_rgb_u8 = np.repeat(depth_u8[..., None], 3, axis=-1)
-        grid_u8 = _tile_images_grid(depth_rgb_u8)
-        return Image.fromarray(grid_u8)
+    else:
+        depth_norm = np.zeros_like(depth, dtype=np.float32)
 
-    raise RuntimeError("Neither rgb_pixels nor depth_range_pixels is available for GIF capture.")
+    depth_u8 = np.clip(depth_norm * 255.0, 0.0, 255.0).astype(np.uint8)
+    depth_rgb_u8 = np.repeat(depth_u8[..., None], 3, axis=-1)
+    grid_u8 = _tile_images_grid(depth_rgb_u8)
+    return Image.fromarray(grid_u8)
 
 
-def _maybe_save_case_gif(
-    frames,
-    robot_name: str,
-    num_envs: int,
-    gif_duration_ms: int,
-):
+def _maybe_save_case_gif(frames, env_name: str, robot_name: str, num_envs: int, gif_duration_ms: int):
     if len(frames) == 0:
         return None
     out_dir = os.path.join(os.path.dirname(__file__), "stored_data", "benchmark_gifs")
     os.makedirs(out_dir, exist_ok=True)
-    gif_path = os.path.join(out_dir, f"benchmark_{robot_name}_{num_envs}envs.gif")
+    gif_path = os.path.join(out_dir, f"benchmark_depth_only_{env_name}_{robot_name}_{num_envs}envs.gif")
     frames[0].save(
         gif_path,
         save_all=True,
@@ -190,6 +150,7 @@ def _maybe_save_case_gif(
 
 
 def _run_case(
+    env_name: str,
     robot_name: str,
     controller_name: str,
     num_envs: int,
@@ -204,7 +165,7 @@ def _run_case(
 ):
     env_manager = SimBuilder().build_env(
         sim_name="base_sim",
-        env_name="matterport_glb_env",
+        env_name=env_name,
         robot_name=robot_name,
         controller_name=controller_name,
         args=None,
@@ -229,8 +190,6 @@ def _run_case(
 
     with torch.no_grad():
         for _ in range(warmup_steps):
-            # Lee position controller expects [x, y, z, yaw]. Holding current pose
-            # avoids fall/reset churn and keeps benchmark focused on sensor/render cost.
             actions[:, 0:3] = env_manager.global_tensor_dict["robot_position"]
             if "robot_euler_angles" in env_manager.global_tensor_dict:
                 actions[:, 3] = env_manager.global_tensor_dict["robot_euler_angles"][:, 2]
@@ -269,12 +228,14 @@ def _run_case(
 
     gif_path = _maybe_save_case_gif(
         frames=frames,
+        env_name=env_name,
         robot_name=robot_name,
         num_envs=num_envs,
         gif_duration_ms=gif_duration_ms,
     )
 
     return {
+        "env_name": env_name,
         "robot_name": robot_name,
         "controller_name": controller_name,
         "num_envs": num_envs,
@@ -288,6 +249,7 @@ def _run_case(
 
 
 def _run_case_subprocess(
+    env_name: str,
     robot_name: str,
     controller_name: str,
     num_envs: int,
@@ -296,7 +258,6 @@ def _run_case_subprocess(
     width: int,
     height: int,
     max_range: float,
-    enable_lighting: bool,
     device: str,
     headless: bool,
     save_gif: bool,
@@ -308,6 +269,7 @@ def _run_case_subprocess(
     env.update(
         {
             "AERIAL_GYM_BENCH_CHILD": "1",
+            "AERIAL_GYM_BENCH_ENV_NAME": env_name,
             "AERIAL_GYM_BENCH_ROBOT_NAME": robot_name,
             "AERIAL_GYM_BENCH_CONTROLLER_NAME": controller_name,
             "AERIAL_GYM_BENCH_NUM_ENVS": str(num_envs),
@@ -316,7 +278,6 @@ def _run_case_subprocess(
             "AERIAL_GYM_BENCH_CAM_WIDTH": str(width),
             "AERIAL_GYM_BENCH_CAM_HEIGHT": str(height),
             "AERIAL_GYM_BENCH_MAX_RANGE": str(max_range),
-            "AERIAL_GYM_BENCH_RGBD_LIGHTING": "1" if enable_lighting else "0",
             "AERIAL_GYM_BENCH_DEVICE": device,
             "AERIAL_GYM_BENCH_HEADLESS": "1" if headless else "0",
             "AERIAL_GYM_BENCH_SAVE_GIFS": "1" if save_gif else "0",
@@ -330,7 +291,7 @@ def _run_case_subprocess(
     proc = subprocess.run(cmd, env=env, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(
-            f"Child benchmark failed for robot={robot_name}, num_envs={num_envs}.\n"
+            f"Child benchmark failed for env={env_name}, robot={robot_name}, num_envs={num_envs}.\n"
             f"STDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
         )
 
@@ -339,28 +300,26 @@ def _run_case_subprocess(
             return json.loads(line[len("RESULT_JSON:") :].strip())
 
     raise RuntimeError(
-        f"Child benchmark did not emit RESULT_JSON for robot={robot_name}, num_envs={num_envs}.\n"
+        f"Child benchmark did not emit RESULT_JSON for env={env_name}, robot={robot_name}, num_envs={num_envs}.\n"
         f"STDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
     )
 
 
-def _print_table(depth_rows, rgbd_rows):
-    logger.warning("\n=== Matterport Parallel Benchmark: Depth-only vs RGBD ===")
+def _print_table(rows):
+    logger.warning("\n=== Vanilla Parallel Benchmark: Depth-only ===")
     print(
-        f"{'envs':>6} | {'depth FPS':>12} | {'rgbd FPS':>12} | {'d FPS/env':>10} | {'r FPS/env':>10} | {'rgbd/depth':>11} | "
-        f"{'depth RTF':>10} | {'rgbd RTF':>10}"
+        f"{'envs':>6} | {'depth FPS':>12} | {'FPS/env':>10} | {'depth RTF':>10} | {'RTF/env':>10} | {'elapsed(s)':>12}"
     )
-    print("-" * 110)
-    for d, r in zip(depth_rows, rgbd_rows):
-        ratio = r["fps"] / max(d["fps"], 1.0e-9)
+    print("-" * 76)
+    for r in rows:
         print(
-            f"{d['num_envs']:6d} | {d['fps']:12.2f} | {r['fps']:12.2f} | {d['fps_per_env']:10.2f} | {r['fps_per_env']:10.2f} | {ratio:11.3f} | "
-            f"{d['real_time_speedup']:10.2f} | {r['real_time_speedup']:10.2f}"
+            f"{r['num_envs']:6d} | {r['fps']:12.2f} | {r['fps_per_env']:10.2f} | {r['real_time_speedup']:10.2f} | {r['real_time_speedup_per_env']:10.2f} | {r['elapsed_s']:12.3f}"
         )
 
 
 if __name__ == "__main__":
     if os.getenv("AERIAL_GYM_BENCH_CHILD", "0") == "1":
+        env_name = os.getenv("AERIAL_GYM_BENCH_ENV_NAME", "env_with_obstacles")
         robot_name = os.getenv("AERIAL_GYM_BENCH_ROBOT_NAME", "base_quadrotor_with_camera")
         controller_name = os.getenv("AERIAL_GYM_BENCH_CONTROLLER_NAME", "lee_position_control")
         num_envs = int(os.getenv("AERIAL_GYM_BENCH_NUM_ENVS", "1"))
@@ -369,7 +328,6 @@ if __name__ == "__main__":
         width = int(os.getenv("AERIAL_GYM_BENCH_CAM_WIDTH", "240"))
         height = int(os.getenv("AERIAL_GYM_BENCH_CAM_HEIGHT", "135"))
         max_range = float(os.getenv("AERIAL_GYM_BENCH_MAX_RANGE", "80.0"))
-        enable_lighting = os.getenv("AERIAL_GYM_BENCH_RGBD_LIGHTING", "0") == "1"
         headless = os.getenv("AERIAL_GYM_BENCH_HEADLESS", "1") == "1"
         device = os.getenv("AERIAL_GYM_BENCH_DEVICE", "cuda:0")
         save_gif = os.getenv("AERIAL_GYM_BENCH_SAVE_GIFS", "0") == "1"
@@ -377,14 +335,11 @@ if __name__ == "__main__":
         gif_max_frames = int(os.getenv("AERIAL_GYM_BENCH_GIF_MAX_FRAMES", "300"))
         gif_duration_ms = int(os.getenv("AERIAL_GYM_BENCH_GIF_DURATION_MS", "60"))
 
-        _configure_camera_classes(
-            width=width,
-            height=height,
-            max_range=max_range,
-            enable_lighting=enable_lighting,
-        )
-        _apply_spawn_region_from_env(MatterportGLBEnvCfg, prefix="AERIAL_GYM_BENCH")
+        _configure_depth_camera_class(width=width, height=height, max_range=max_range)
+        _apply_spawn_region_from_env(env_name=env_name, prefix="AERIAL_GYM_BENCH")
+
         row = _run_case(
+            env_name=env_name,
             robot_name=robot_name,
             controller_name=controller_name,
             num_envs=num_envs,
@@ -406,31 +361,30 @@ if __name__ == "__main__":
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
+    env_name = os.getenv("AERIAL_GYM_BENCH_ENV_NAME", "env_with_obstacles")
+    robot_name = os.getenv("AERIAL_GYM_BENCH_ROBOT_NAME", "base_quadrotor_with_camera")
+    controller_name = os.getenv("AERIAL_GYM_BENCH_CONTROLLER_NAME", "lee_position_control")
+
     env_counts = _parse_env_counts(os.getenv("AERIAL_GYM_BENCH_ENVS", "1,2,4,8,16"))
     warmup_steps = int(os.getenv("AERIAL_GYM_BENCH_WARMUP_STEPS", "100"))
     bench_steps = int(os.getenv("AERIAL_GYM_BENCH_STEPS", "300"))
     width = int(os.getenv("AERIAL_GYM_BENCH_CAM_WIDTH", "240"))
     height = int(os.getenv("AERIAL_GYM_BENCH_CAM_HEIGHT", "135"))
     max_range = float(os.getenv("AERIAL_GYM_BENCH_MAX_RANGE", "80.0"))
-    enable_lighting = os.getenv("AERIAL_GYM_BENCH_RGBD_LIGHTING", "0") == "1"
     headless = os.getenv("AERIAL_GYM_BENCH_HEADLESS", "1") == "1"
     device = os.getenv("AERIAL_GYM_BENCH_DEVICE", "cuda:0")
     save_gifs = os.getenv("AERIAL_GYM_BENCH_SAVE_GIFS", "0") == "1"
     gif_every = int(os.getenv("AERIAL_GYM_BENCH_GIF_EVERY", "5"))
     gif_max_frames = int(os.getenv("AERIAL_GYM_BENCH_GIF_MAX_FRAMES", "300"))
     gif_duration_ms = int(os.getenv("AERIAL_GYM_BENCH_GIF_DURATION_MS", "60"))
-    controller_name = os.getenv("AERIAL_GYM_BENCH_CONTROLLER_NAME", "lee_position_control")
 
-    _configure_camera_classes(
-        width=width,
-        height=height,
-        max_range=max_range,
-        enable_lighting=enable_lighting,
-    )
-    spawn_region = _apply_spawn_region_from_env(MatterportGLBEnvCfg, prefix="AERIAL_GYM_BENCH")
+    _configure_depth_camera_class(width=width, height=height, max_range=max_range)
+    spawn_region = _apply_spawn_region_from_env(env_name=env_name, prefix="AERIAL_GYM_BENCH")
 
     logger.warning(
-        "Running benchmark on env counts %s, warmup=%d, bench=%d, resolution=%dx%d, max_range=%.1f",
+        "Running depth-only benchmark: env=%s, robot=%s, env_counts=%s, warmup=%d, bench=%d, res=%dx%d, max_range=%.1f",
+        env_name,
+        robot_name,
         env_counts,
         warmup_steps,
         bench_steps,
@@ -439,14 +393,13 @@ if __name__ == "__main__":
         max_range,
     )
 
-    depth_rows = []
-    rgbd_rows = []
-
+    rows = []
     for n in env_counts:
         logger.warning("Depth-only case: num_envs=%d", n)
-        depth_rows.append(
+        rows.append(
             _run_case_subprocess(
-                robot_name="base_quadrotor_with_camera",
+                env_name=env_name,
+                robot_name=robot_name,
                 controller_name=controller_name,
                 num_envs=n,
                 warmup_steps=warmup_steps,
@@ -454,7 +407,6 @@ if __name__ == "__main__":
                 width=width,
                 height=height,
                 max_range=max_range,
-                enable_lighting=enable_lighting,
                 device=device,
                 headless=headless,
                 save_gif=save_gifs,
@@ -464,40 +416,20 @@ if __name__ == "__main__":
             )
         )
 
-        logger.warning("Shaded RGBD case: num_envs=%d", n)
-        rgbd_rows.append(
-            _run_case_subprocess(
-                robot_name="base_quadrotor_with_shaded_rgbd_camera",
-                controller_name=controller_name,
-                num_envs=n,
-                warmup_steps=warmup_steps,
-                bench_steps=bench_steps,
-                width=width,
-                height=height,
-                max_range=max_range,
-                enable_lighting=enable_lighting,
-                device=device,
-                headless=headless,
-                save_gif=save_gifs,
-                gif_every=gif_every,
-                gif_max_frames=gif_max_frames,
-                gif_duration_ms=gif_duration_ms,
-            )
-        )
-
-    _print_table(depth_rows, rgbd_rows)
+    _print_table(rows)
 
     payload = {
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "settings": {
+            "env_name": env_name,
+            "robot_name": robot_name,
+            "controller_name": controller_name,
             "env_counts": env_counts,
             "warmup_steps": warmup_steps,
             "bench_steps": bench_steps,
             "width": width,
             "height": height,
             "max_range": max_range,
-            "enable_lighting": enable_lighting,
-            "controller_name": controller_name,
             "headless": headless,
             "device": device,
             "save_gifs": save_gifs,
@@ -506,13 +438,12 @@ if __name__ == "__main__":
             "gif_duration_ms": gif_duration_ms,
             "spawn_region": spawn_region,
         },
-        "depth_only": depth_rows,
-        "shaded_rgbd": rgbd_rows,
+        "depth_only": rows,
     }
 
     out_dir = os.path.join(os.path.dirname(__file__), "stored_data")
     os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "matterport_depth_vs_rgbd_benchmark.json")
+    out_path = os.path.join(out_dir, "depth_only_benchmark.json")
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
-    logger.warning("Saved benchmark report: %s", out_path)
+    logger.warning("Saved depth-only benchmark report: %s", out_path)
