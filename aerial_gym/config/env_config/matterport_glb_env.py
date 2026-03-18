@@ -2,7 +2,7 @@ class MatterportGLBEnvCfg:
     class env:
         num_envs = 1
         num_env_actions = 0
-        env_spacing = 20.0
+        env_spacing = 1.0
 
         num_physics_steps_per_env_step_mean = 1
         num_physics_steps_per_env_step_std = 0
@@ -29,7 +29,7 @@ class MatterportGLBEnvCfg:
 
     class static_scene:
         enable = True
-        file = "resources/envs/HaxA7YrQdEC.glb"
+        file = "resources/envs/TEEsavR23oF.glb"
         collision_file = None
         scale = 1.0
         translation = [0.0, 0.0, 0.0]
