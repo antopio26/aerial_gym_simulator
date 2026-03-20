@@ -201,6 +201,7 @@ def _run_case(
     gif_every: int,
     gif_max_frames: int,
     gif_duration_ms: int,
+    render_every: int,
 ):
     env_manager = SimBuilder().build_env(
         sim_name="base_sim",
@@ -218,6 +219,11 @@ def _run_case(
     env_manager.reset()
     frames = []
     total_steps = 0
+    render_count = 0
+    render_every = max(int(render_every), 1)
+
+    robot_position = env_manager.global_tensor_dict["robot_position"]
+    robot_euler_angles = env_manager.global_tensor_dict.get("robot_euler_angles", None)
 
     def maybe_capture_frame():
         nonlocal total_steps
@@ -231,26 +237,31 @@ def _run_case(
         for _ in range(warmup_steps):
             # Lee position controller expects [x, y, z, yaw]. Holding current pose
             # avoids fall/reset churn and keeps benchmark focused on sensor/render cost.
-            actions[:, 0:3] = env_manager.global_tensor_dict["robot_position"]
-            if "robot_euler_angles" in env_manager.global_tensor_dict:
-                actions[:, 3] = env_manager.global_tensor_dict["robot_euler_angles"][:, 2]
+            actions[:, 0:3] = robot_position
+            if robot_euler_angles is not None:
+                actions[:, 3] = robot_euler_angles[:, 2]
             else:
                 actions[:, 3] = 0.0
             env_manager.step(actions=actions)
-            env_manager.render(render_components="sensors")
+            if total_steps % render_every == 0:
+                env_manager.render(render_components="sensors")
+                render_count += 1
             env_manager.reset_terminated_and_truncated_envs()
             maybe_capture_frame()
             total_steps += 1
 
+        render_count = 0
         start = time.time()
         for _ in range(bench_steps):
-            actions[:, 0:3] = env_manager.global_tensor_dict["robot_position"]
-            if "robot_euler_angles" in env_manager.global_tensor_dict:
-                actions[:, 3] = env_manager.global_tensor_dict["robot_euler_angles"][:, 2]
+            actions[:, 0:3] = robot_position
+            if robot_euler_angles is not None:
+                actions[:, 3] = robot_euler_angles[:, 2]
             else:
                 actions[:, 3] = 0.0
             env_manager.step(actions=actions)
-            env_manager.render(render_components="sensors")
+            if total_steps % render_every == 0:
+                env_manager.render(render_components="sensors")
+                render_count += 1
             env_manager.reset_terminated_and_truncated_envs()
             maybe_capture_frame()
             total_steps += 1
@@ -261,6 +272,11 @@ def _run_case(
     rtf = (bench_steps * num_envs * sim_dt) / max(elapsed, 1.0e-9)
     fps_per_env = fps / max(num_envs, 1)
     rtf_per_env = rtf / max(num_envs, 1)
+    rendered_fps = (render_count * num_envs) / max(elapsed, 1.0e-9)
+    rendered_fps_per_env = rendered_fps / max(num_envs, 1)
+    render_dt = sim_dt * render_every
+    rendered_rtf = (render_count * num_envs * render_dt) / max(elapsed, 1.0e-9)
+    rendered_rtf_per_env = rendered_rtf / max(num_envs, 1)
 
     del env_manager
     gc.collect()
@@ -283,6 +299,12 @@ def _run_case(
         "fps_per_env": fps_per_env,
         "real_time_speedup": rtf,
         "real_time_speedup_per_env": rtf_per_env,
+        "render_count": render_count,
+        "render_every": render_every,
+        "rendered_fps": rendered_fps,
+        "rendered_fps_per_env": rendered_fps_per_env,
+        "rendered_real_time_speedup": rendered_rtf,
+        "rendered_real_time_speedup_per_env": rendered_rtf_per_env,
         "gif_path": gif_path,
     }
 
@@ -303,6 +325,7 @@ def _run_case_subprocess(
     gif_every: int,
     gif_max_frames: int,
     gif_duration_ms: int,
+    render_every: int,
 ):
     env = os.environ.copy()
     env.update(
@@ -323,6 +346,7 @@ def _run_case_subprocess(
             "AERIAL_GYM_BENCH_GIF_EVERY": str(gif_every),
             "AERIAL_GYM_BENCH_GIF_MAX_FRAMES": str(gif_max_frames),
             "AERIAL_GYM_BENCH_GIF_DURATION_MS": str(gif_duration_ms),
+            "AERIAL_GYM_BENCH_RENDER_EVERY": str(render_every),
         }
     )
 
@@ -376,6 +400,7 @@ if __name__ == "__main__":
         gif_every = int(os.getenv("AERIAL_GYM_BENCH_GIF_EVERY", "5"))
         gif_max_frames = int(os.getenv("AERIAL_GYM_BENCH_GIF_MAX_FRAMES", "300"))
         gif_duration_ms = int(os.getenv("AERIAL_GYM_BENCH_GIF_DURATION_MS", "60"))
+        render_every = int(os.getenv("AERIAL_GYM_BENCH_RENDER_EVERY", "1"))
 
         _configure_camera_classes(
             width=width,
@@ -396,6 +421,7 @@ if __name__ == "__main__":
             gif_every=gif_every,
             gif_max_frames=gif_max_frames,
             gif_duration_ms=gif_duration_ms,
+            render_every=render_every,
         )
         print("RESULT_JSON:" + json.dumps(row))
         raise SystemExit(0)
@@ -419,6 +445,7 @@ if __name__ == "__main__":
     gif_every = int(os.getenv("AERIAL_GYM_BENCH_GIF_EVERY", "5"))
     gif_max_frames = int(os.getenv("AERIAL_GYM_BENCH_GIF_MAX_FRAMES", "300"))
     gif_duration_ms = int(os.getenv("AERIAL_GYM_BENCH_GIF_DURATION_MS", "60"))
+    render_every = int(os.getenv("AERIAL_GYM_BENCH_RENDER_EVERY", "1"))
     controller_name = os.getenv("AERIAL_GYM_BENCH_CONTROLLER_NAME", "lee_position_control")
 
     _configure_camera_classes(
@@ -461,6 +488,7 @@ if __name__ == "__main__":
                 gif_every=gif_every,
                 gif_max_frames=gif_max_frames,
                 gif_duration_ms=gif_duration_ms,
+                render_every=render_every,
             )
         )
 
@@ -482,6 +510,7 @@ if __name__ == "__main__":
                 gif_every=gif_every,
                 gif_max_frames=gif_max_frames,
                 gif_duration_ms=gif_duration_ms,
+                render_every=render_every,
             )
         )
 
@@ -498,6 +527,7 @@ if __name__ == "__main__":
             "max_range": max_range,
             "enable_lighting": enable_lighting,
             "controller_name": controller_name,
+            "render_every": render_every,
             "headless": headless,
             "device": device,
             "save_gifs": save_gifs,

@@ -97,6 +97,27 @@ def _apply_spawn_region_from_env(env_name: str, prefix: str):
     }
 
 
+def _apply_env_step_rate_from_env(env_name: str, prefix: str):
+    # Benchmarking camera/render throughput is easier to interpret with one physics
+    # step per env step; this keeps cadence controls like render_every intuitive.
+    import aerial_gym.env_manager  # noqa: F401
+    from aerial_gym.registry.env_registry import env_config_registry
+
+    cfg_cls = env_config_registry.get_env_config(env_name)
+    physics_steps_per_env_step = int(os.getenv(f"{prefix}_PHYSICS_STEPS_PER_ENV_STEP", "1"))
+    physics_steps_per_env_step = max(1, physics_steps_per_env_step)
+
+    cfg_cls.env.num_physics_steps_per_env_step_mean = physics_steps_per_env_step
+    cfg_cls.env.num_physics_steps_per_env_step_std = 0
+
+    logger.warning(
+        "Configured physics steps per env step from %s: %d",
+        prefix,
+        physics_steps_per_env_step,
+    )
+    return physics_steps_per_env_step
+
+
 def _tile_images_grid(images_u8: np.ndarray) -> np.ndarray:
     """Tile N images into a near-square grid. Input: (N,H,W,C) uint8."""
     n, h, w, c = images_u8.shape
@@ -162,6 +183,7 @@ def _run_case(
     gif_every: int,
     gif_max_frames: int,
     gif_duration_ms: int,
+    render_every: int,
 ):
     env_manager = SimBuilder().build_env(
         sim_name="base_sim",
@@ -179,6 +201,11 @@ def _run_case(
     env_manager.reset()
     frames = []
     total_steps = 0
+    render_count = 0
+    render_every = max(int(render_every), 1)
+
+    robot_position = env_manager.global_tensor_dict["robot_position"]
+    robot_euler_angles = env_manager.global_tensor_dict.get("robot_euler_angles", None)
 
     def maybe_capture_frame():
         nonlocal total_steps
@@ -190,26 +217,31 @@ def _run_case(
 
     with torch.no_grad():
         for _ in range(warmup_steps):
-            actions[:, 0:3] = env_manager.global_tensor_dict["robot_position"]
-            if "robot_euler_angles" in env_manager.global_tensor_dict:
-                actions[:, 3] = env_manager.global_tensor_dict["robot_euler_angles"][:, 2]
+            actions[:, 0:3] = robot_position
+            if robot_euler_angles is not None:
+                actions[:, 3] = robot_euler_angles[:, 2]
             else:
                 actions[:, 3] = 0.0
             env_manager.step(actions=actions)
-            env_manager.render(render_components="sensors")
+            if total_steps % render_every == 0:
+                env_manager.render(render_components="sensors")
+                render_count += 1
             env_manager.reset_terminated_and_truncated_envs()
             maybe_capture_frame()
             total_steps += 1
 
+        render_count = 0
         start = time.time()
         for _ in range(bench_steps):
-            actions[:, 0:3] = env_manager.global_tensor_dict["robot_position"]
-            if "robot_euler_angles" in env_manager.global_tensor_dict:
-                actions[:, 3] = env_manager.global_tensor_dict["robot_euler_angles"][:, 2]
+            actions[:, 0:3] = robot_position
+            if robot_euler_angles is not None:
+                actions[:, 3] = robot_euler_angles[:, 2]
             else:
                 actions[:, 3] = 0.0
             env_manager.step(actions=actions)
-            env_manager.render(render_components="sensors")
+            if total_steps % render_every == 0:
+                env_manager.render(render_components="sensors")
+                render_count += 1
             env_manager.reset_terminated_and_truncated_envs()
             maybe_capture_frame()
             total_steps += 1
@@ -220,6 +252,11 @@ def _run_case(
     rtf = (bench_steps * num_envs * sim_dt) / max(elapsed, 1.0e-9)
     fps_per_env = fps / max(num_envs, 1)
     rtf_per_env = rtf / max(num_envs, 1)
+    rendered_fps = (render_count * num_envs) / max(elapsed, 1.0e-9)
+    rendered_fps_per_env = rendered_fps / max(num_envs, 1)
+    render_dt = sim_dt * render_every
+    rendered_rtf = (render_count * num_envs * render_dt) / max(elapsed, 1.0e-9)
+    rendered_rtf_per_env = rendered_rtf / max(num_envs, 1)
 
     del env_manager
     gc.collect()
@@ -244,6 +281,12 @@ def _run_case(
         "fps_per_env": fps_per_env,
         "real_time_speedup": rtf,
         "real_time_speedup_per_env": rtf_per_env,
+        "render_count": render_count,
+        "render_every": render_every,
+        "rendered_fps": rendered_fps,
+        "rendered_fps_per_env": rendered_fps_per_env,
+        "rendered_real_time_speedup": rendered_rtf,
+        "rendered_real_time_speedup_per_env": rendered_rtf_per_env,
         "gif_path": gif_path,
     }
 
@@ -264,6 +307,8 @@ def _run_case_subprocess(
     gif_every: int,
     gif_max_frames: int,
     gif_duration_ms: int,
+    render_every: int,
+    physics_steps_per_env_step: int,
 ):
     env = os.environ.copy()
     env.update(
@@ -284,6 +329,8 @@ def _run_case_subprocess(
             "AERIAL_GYM_BENCH_GIF_EVERY": str(gif_every),
             "AERIAL_GYM_BENCH_GIF_MAX_FRAMES": str(gif_max_frames),
             "AERIAL_GYM_BENCH_GIF_DURATION_MS": str(gif_duration_ms),
+            "AERIAL_GYM_BENCH_RENDER_EVERY": str(render_every),
+            "AERIAL_GYM_BENCH_PHYSICS_STEPS_PER_ENV_STEP": str(physics_steps_per_env_step),
         }
     )
 
@@ -308,12 +355,12 @@ def _run_case_subprocess(
 def _print_table(rows):
     logger.warning("\n=== Vanilla Parallel Benchmark: Depth-only ===")
     print(
-        f"{'envs':>6} | {'depth FPS':>12} | {'FPS/env':>10} | {'depth RTF':>10} | {'RTF/env':>10} | {'elapsed(s)':>12}"
+        f"{'envs':>6} | {'step FPS':>12} | {'render FPS':>12} | {'step RTF':>10} | {'render RTF':>10} | {'elapsed(s)':>12}"
     )
     print("-" * 76)
     for r in rows:
         print(
-            f"{r['num_envs']:6d} | {r['fps']:12.2f} | {r['fps_per_env']:10.2f} | {r['real_time_speedup']:10.2f} | {r['real_time_speedup_per_env']:10.2f} | {r['elapsed_s']:12.3f}"
+            f"{r['num_envs']:6d} | {r['fps']:12.2f} | {r['rendered_fps']:12.2f} | {r['real_time_speedup']:10.2f} | {r['rendered_real_time_speedup']:10.2f} | {r['elapsed_s']:12.3f}"
         )
 
 
@@ -334,6 +381,8 @@ if __name__ == "__main__":
         gif_every = int(os.getenv("AERIAL_GYM_BENCH_GIF_EVERY", "5"))
         gif_max_frames = int(os.getenv("AERIAL_GYM_BENCH_GIF_MAX_FRAMES", "300"))
         gif_duration_ms = int(os.getenv("AERIAL_GYM_BENCH_GIF_DURATION_MS", "60"))
+        render_every = int(os.getenv("AERIAL_GYM_BENCH_RENDER_EVERY", "1"))
+        _apply_env_step_rate_from_env(env_name=env_name, prefix="AERIAL_GYM_BENCH")
 
         _configure_depth_camera_class(width=width, height=height, max_range=max_range)
         _apply_spawn_region_from_env(env_name=env_name, prefix="AERIAL_GYM_BENCH")
@@ -351,6 +400,7 @@ if __name__ == "__main__":
             gif_every=gif_every,
             gif_max_frames=gif_max_frames,
             gif_duration_ms=gif_duration_ms,
+            render_every=render_every,
         )
         print("RESULT_JSON:" + json.dumps(row))
         raise SystemExit(0)
@@ -377,6 +427,9 @@ if __name__ == "__main__":
     gif_every = int(os.getenv("AERIAL_GYM_BENCH_GIF_EVERY", "5"))
     gif_max_frames = int(os.getenv("AERIAL_GYM_BENCH_GIF_MAX_FRAMES", "300"))
     gif_duration_ms = int(os.getenv("AERIAL_GYM_BENCH_GIF_DURATION_MS", "60"))
+    render_every = int(os.getenv("AERIAL_GYM_BENCH_RENDER_EVERY", "1"))
+    physics_steps_per_env_step = int(os.getenv("AERIAL_GYM_BENCH_PHYSICS_STEPS_PER_ENV_STEP", "1"))
+    physics_steps_per_env_step = max(1, physics_steps_per_env_step)
 
     _configure_depth_camera_class(width=width, height=height, max_range=max_range)
     spawn_region = _apply_spawn_region_from_env(env_name=env_name, prefix="AERIAL_GYM_BENCH")
@@ -413,6 +466,8 @@ if __name__ == "__main__":
                 gif_every=gif_every,
                 gif_max_frames=gif_max_frames,
                 gif_duration_ms=gif_duration_ms,
+                render_every=render_every,
+                physics_steps_per_env_step=physics_steps_per_env_step,
             )
         )
 
@@ -432,6 +487,8 @@ if __name__ == "__main__":
             "max_range": max_range,
             "headless": headless,
             "device": device,
+            "render_every": render_every,
+            "physics_steps_per_env_step": physics_steps_per_env_step,
             "save_gifs": save_gifs,
             "gif_every": gif_every,
             "gif_max_frames": gif_max_frames,
