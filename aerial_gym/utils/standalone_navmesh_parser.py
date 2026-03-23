@@ -130,7 +130,11 @@ class StandaloneNavMesh:
         tile_verts = []
         for v in range(vertCount):
             xyz = struct.unpack('<3f', tile_data[offset:offset+12])
-            tile_verts.append(xyz)
+            
+            # Rotate 90 degrees on X-axis during extraction
+            rotated_xyz = (xyz[0], -xyz[2], xyz[1])
+            tile_verts.append(rotated_xyz)
+            
             offset += 12
             
         # Add to global vertex array, recording offset
