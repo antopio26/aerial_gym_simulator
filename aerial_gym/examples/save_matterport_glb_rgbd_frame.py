@@ -4,6 +4,12 @@ import random
 import numpy as np
 from PIL import Image
 
+from aerial_gym.benchmark.matterport_spawn_helpers import (
+    apply_navmesh_config_from_env,
+    apply_spawn_region_from_env,
+    resolve_scene_bundle_from_env,
+)
+from aerial_gym.config.env_config.matterport_glb_env import MatterportGLBEnvCfg
 from aerial_gym.sim.sim_builder import SimBuilder
 from aerial_gym.utils.logging import CustomLogger
 import torch
@@ -14,6 +20,19 @@ logger = CustomLogger(__name__)
 
 if __name__ == "__main__":
     logger.warning("Running Matterport GLB shaded RGBD frame capture example.")
+
+    scene_bundle = resolve_scene_bundle_from_env(
+        MatterportGLBEnvCfg,
+        prefix="AERIAL_GYM_RGBD",
+        logger=logger,
+    )
+    apply_spawn_region_from_env(MatterportGLBEnvCfg, prefix="AERIAL_GYM_RGBD", logger=logger)
+    apply_navmesh_config_from_env(
+        MatterportGLBEnvCfg,
+        prefix="AERIAL_GYM_RGBD",
+        scene_bundle=scene_bundle,
+        logger=logger,
+    )
 
     seed = 0
     random.seed(seed)

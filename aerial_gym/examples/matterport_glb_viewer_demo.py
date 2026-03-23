@@ -4,6 +4,12 @@ import random
 import numpy as np
 from PIL import Image
 
+from aerial_gym.config.env_config.matterport_glb_env import MatterportGLBEnvCfg
+from aerial_gym.benchmark.matterport_spawn_helpers import (
+    apply_navmesh_config_from_env,
+    apply_spawn_region_from_env,
+    resolve_scene_bundle_from_env,
+)
 from aerial_gym.sim.sim_builder import SimBuilder
 from aerial_gym.utils.logging import CustomLogger
 import torch
@@ -24,7 +30,20 @@ if __name__ == "__main__":
     headless = os.getenv("AERIAL_GYM_DEMO_HEADLESS", "0") == "1"
     enable_lighting = os.getenv("AERIAL_GYM_TEXTURE_LIGHTING", "0") == "1"
     debug_uv_checker = os.getenv("AERIAL_GYM_DEBUG_UV_CHECKER", "0") == "1"
+    controller_name = os.getenv("AERIAL_GYM_DEMO_CONTROLLER", "lee_position_control")
 
+    scene_bundle = resolve_scene_bundle_from_env(
+        MatterportGLBEnvCfg,
+        prefix="AERIAL_GYM_DEMO",
+        logger=logger,
+    )
+    apply_spawn_region_from_env(MatterportGLBEnvCfg, prefix="AERIAL_GYM_DEMO", logger=logger)
+    apply_navmesh_config_from_env(
+        MatterportGLBEnvCfg,
+        prefix="AERIAL_GYM_DEMO",
+        scene_bundle=scene_bundle,
+        logger=logger,
+    )
     ShadedRGBDCameraConfig.enable_lighting = enable_lighting
     ShadedRGBDCameraConfig.debug_uv_checker = debug_uv_checker
     if debug_uv_checker:
@@ -42,7 +61,7 @@ if __name__ == "__main__":
         sim_name="base_sim",
         env_name="matterport_glb_env",
         robot_name="base_quadrotor_with_shaded_rgbd_camera",
-        controller_name="lee_velocity_control",
+        controller_name=controller_name,
         args=None,
         device="cuda:0",
         num_envs=1,
@@ -53,18 +72,53 @@ if __name__ == "__main__":
 
     actions = torch.zeros((env_manager.num_envs, 4), device="cuda:0")
     env_manager.reset()
+    robot_position = env_manager.global_tensor_dict["robot_position"]
+    robot_euler_angles = env_manager.global_tensor_dict.get("robot_euler_angles", None)
+    if "env_origins" in env_manager.global_tensor_dict:
+        env_origins = env_manager.global_tensor_dict["env_origins"]
+    elif hasattr(env_manager, "env_origins"):
+        env_origins = env_manager.env_origins
+    else:
+        env_origins = torch.zeros_like(robot_position)
+
+    anchor_local_pos = torch.zeros((env_manager.num_envs, 3), device="cuda:0")
+    anchor_yaw = torch.zeros(env_manager.num_envs, device="cuda:0")
+
+    def refresh_anchors(env_ids=None):
+        local_pos = robot_position - env_origins
+        if env_ids is None:
+            anchor_local_pos[:] = local_pos
+            if robot_euler_angles is not None:
+                anchor_yaw[:] = robot_euler_angles[:, 2]
+            else:
+                anchor_yaw[:] = 0.0
+            return
+
+        if len(env_ids) == 0:
+            return
+        anchor_local_pos[env_ids] = local_pos[env_ids]
+        if robot_euler_angles is not None:
+            anchor_yaw[env_ids] = robot_euler_angles[env_ids, 2]
+        else:
+            anchor_yaw[env_ids] = 0.0
+
+    refresh_anchors()
 
     rgb_frames = []
     for step in range(num_steps):
         t = float(step)
-        actions[:, 0] = 0.55 + 0.20 * np.sin(0.020 * t)
-        actions[:, 1] = 0.18 * np.sin(0.011 * t)
-        actions[:, 2] = 0.10 * np.cos(0.015 * t)
-        actions[:, 3] = 0.30 * np.sin(0.008 * t)
+        actions[:, 0] = anchor_local_pos[:, 0] + 0.55 + 0.20 * np.sin(0.020 * t)
+        actions[:, 1] = anchor_local_pos[:, 1] + 0.18 * np.sin(0.011 * t)
+        actions[:, 2] = anchor_local_pos[:, 2] + 0.10 * np.cos(0.015 * t)
+        actions[:, 3] = anchor_yaw + 0.30 * np.sin(0.008 * t)
 
         env_manager.step(actions=actions)
         env_manager.render(render_components="sensors")
-        env_manager.reset_terminated_and_truncated_envs()
+        reset_env_ids = env_manager.reset_terminated_and_truncated_envs()
+        refresh_anchors(reset_env_ids)
+        if len(reset_env_ids) > 0:
+            actions[reset_env_ids, 0:3] = anchor_local_pos[reset_env_ids]
+            actions[reset_env_ids, 3] = anchor_yaw[reset_env_ids]
 
         if step % capture_every == 0:
             rgb = env_manager.global_tensor_dict["rgb_pixels"][0, 0].detach().cpu().numpy()

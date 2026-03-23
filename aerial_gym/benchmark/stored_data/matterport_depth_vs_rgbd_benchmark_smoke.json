@@ -1,0 +1,110 @@
+{
+  "timestamp": "2026-03-23T15:55:55.277479Z",
+  "config_path": "/opt/aerialgym/aerial_gym/benchmark/configs/matterport_depth_vs_rgbd_smoke.yaml",
+  "settings": {
+    "seed": 0,
+    "env_counts": [
+      1,
+      2
+    ],
+    "warmup_steps": 20,
+    "bench_steps": 40,
+    "width": 240,
+    "height": 135,
+    "max_range": 80.0,
+    "enable_lighting": false,
+    "controller_name": "lee_position_control",
+    "render_every": 1,
+    "headless": true,
+    "device": "cuda:0",
+    "save_gifs": false,
+    "gif_every": 5,
+    "gif_max_frames": 200,
+    "gif_duration_ms": 60,
+    "spawn_region": null,
+    "scene_file": "resources/envs/00800-TEEsavR23oF/TEEsavR23oF.glb",
+    "navmesh_settings": {
+      "enabled": true,
+      "navmesh_file": "resources/envs/00800-TEEsavR23oF/TEEsavR23oF.basis.navmesh",
+      "edge_padding": 0.5,
+      "spawn_height_range": [
+        0.15,
+        0.4
+      ],
+      "strict_edge_padding": true,
+      "enforce_env_bounds": true
+    }
+  },
+  "depth_only": [
+    {
+      "robot_name": "base_quadrotor_with_camera",
+      "controller_name": "lee_position_control",
+      "num_envs": 1,
+      "elapsed_s": 0.17789196968078613,
+      "fps": 224.85556864526833,
+      "fps_per_env": 224.85556864526833,
+      "real_time_speedup": 2.2485556864526837,
+      "real_time_speedup_per_env": 2.2485556864526837,
+      "render_count": 40,
+      "render_every": 1,
+      "rendered_fps": 224.85556864526833,
+      "rendered_fps_per_env": 224.85556864526833,
+      "rendered_real_time_speedup": 2.2485556864526837,
+      "rendered_real_time_speedup_per_env": 2.2485556864526837,
+      "gif_path": null
+    },
+    {
+      "robot_name": "base_quadrotor_with_camera",
+      "controller_name": "lee_position_control",
+      "num_envs": 2,
+      "elapsed_s": 0.2186732292175293,
+      "fps": 365.84267898846684,
+      "fps_per_env": 182.92133949423342,
+      "real_time_speedup": 3.6584267898846687,
+      "real_time_speedup_per_env": 1.8292133949423344,
+      "render_count": 40,
+      "render_every": 1,
+      "rendered_fps": 365.84267898846684,
+      "rendered_fps_per_env": 182.92133949423342,
+      "rendered_real_time_speedup": 3.6584267898846687,
+      "rendered_real_time_speedup_per_env": 1.8292133949423344,
+      "gif_path": null
+    }
+  ],
+  "shaded_rgbd": [
+    {
+      "robot_name": "base_quadrotor_with_shaded_rgbd_camera",
+      "controller_name": "lee_position_control",
+      "num_envs": 1,
+      "elapsed_s": 0.17981410026550293,
+      "fps": 222.45196534052863,
+      "fps_per_env": 222.45196534052863,
+      "real_time_speedup": 2.2245196534052867,
+      "real_time_speedup_per_env": 2.2245196534052867,
+      "render_count": 40,
+      "render_every": 1,
+      "rendered_fps": 222.45196534052863,
+      "rendered_fps_per_env": 222.45196534052863,
+      "rendered_real_time_speedup": 2.2245196534052867,
+      "rendered_real_time_speedup_per_env": 2.2245196534052867,
+      "gif_path": null
+    },
+    {
+      "robot_name": "base_quadrotor_with_shaded_rgbd_camera",
+      "controller_name": "lee_position_control",
+      "num_envs": 2,
+      "elapsed_s": 0.223130464553833,
+      "fps": 358.53463649603526,
+      "fps_per_env": 179.26731824801763,
+      "real_time_speedup": 3.585346364960353,
+      "real_time_speedup_per_env": 1.7926731824801765,
+      "render_count": 40,
+      "render_every": 1,
+      "rendered_fps": 358.53463649603526,
+      "rendered_fps_per_env": 179.26731824801763,
+      "rendered_real_time_speedup": 3.585346364960353,
+      "rendered_real_time_speedup_per_env": 1.7926731824801765,
+      "gif_path": null
+    }
+  ]
+}

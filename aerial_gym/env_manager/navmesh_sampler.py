@@ -109,28 +109,113 @@ class NavMeshSpawnSampler:
         )
         return points * navmesh_scale + navmesh_translation
 
-    def sample_world_points(self, env_ids, height_offset_range):
+    def sample_world_points(self, env_ids, height_offset_range, bounds_min=None, bounds_max=None):
         if not self.enabled or self.navmesh is None or len(env_ids) == 0:
             return None
 
         env_ids = env_ids.to(dtype=torch.long, device=self.device)
-        points_local = self.navmesh.sample_points_with_padding(
-            count=len(env_ids),
-            height_offset=tuple(height_offset_range),
-            edge_padding=float(getattr(self.nav_cfg, "edge_padding", 0.0)),
-            oversample_factor=int(getattr(self.nav_cfg, "oversample_factor", 4)),
-            max_resample_rounds=int(getattr(self.nav_cfg, "max_resample_rounds", 8)),
-        ).to(self.device)
+        edge_padding = float(getattr(self.nav_cfg, "edge_padding", 0.0))
+        oversample_factor = int(getattr(self.nav_cfg, "oversample_factor", 4))
+        max_resample_rounds = int(getattr(self.nav_cfg, "max_resample_rounds", 8))
+        strict_edge_padding = bool(getattr(self.nav_cfg, "strict_edge_padding", True))
+        min_edge_padding_ratio = float(getattr(self.nav_cfg, "min_edge_padding_ratio", 0.35))
+        padding_relaxation_factor = float(
+            getattr(self.nav_cfg, "padding_relaxation_factor", 0.70)
+        )
+        max_padding_relax_rounds = int(getattr(self.nav_cfg, "max_padding_relax_rounds", 3))
+        enforce_bounds = bool(getattr(self.nav_cfg, "enforce_env_bounds", True))
+        max_bound_resample_rounds = int(getattr(self.nav_cfg, "max_bound_resample_rounds", 5))
 
-        points_local = self._apply_scene_transform(points_local)
-        return points_local + self.env_origins[env_ids]
+        bounds_min_env = None
+        bounds_max_env = None
+        if bounds_min is not None and bounds_max is not None:
+            bounds_min_env = bounds_min.to(self.device)[env_ids]
+            bounds_max_env = bounds_max.to(self.device)[env_ids]
 
-    def apply_spawn(self, robot_state_tensor, env_ids):
+        candidate_count = max(oversample_factor * 4, 8)
+        selected_points_world = []
+        fallback_count = 0
+
+        for i, env_id in enumerate(env_ids):
+            env_origin = self.env_origins[env_id]
+            selected = None
+
+            for _ in range(max_bound_resample_rounds):
+                points_local = self.navmesh.sample_points_with_padding(
+                    count=candidate_count,
+                    height_offset=tuple(height_offset_range),
+                    edge_padding=edge_padding,
+                    oversample_factor=oversample_factor,
+                    max_resample_rounds=max_resample_rounds,
+                    strict_edge_padding=strict_edge_padding,
+                    min_edge_padding_ratio=min_edge_padding_ratio,
+                    padding_relaxation_factor=padding_relaxation_factor,
+                    max_padding_relax_rounds=max_padding_relax_rounds,
+                ).to(self.device)
+                points_local_scene = self._apply_scene_transform(points_local)
+
+                if enforce_bounds and bounds_min_env is not None and bounds_max_env is not None:
+                    env_bmin = bounds_min_env[i]
+                    env_bmax = bounds_max_env[i]
+
+                    points_world = points_local_scene + env_origin.unsqueeze(0)
+                    in_world_bounds = torch.logical_and(
+                        points_world >= env_bmin.unsqueeze(0),
+                        points_world <= env_bmax.unsqueeze(0),
+                    ).all(dim=1)
+
+                    in_local_bounds = torch.logical_and(
+                        points_local_scene >= env_bmin.unsqueeze(0),
+                        points_local_scene <= env_bmax.unsqueeze(0),
+                    ).all(dim=1)
+
+                    in_bounds = torch.logical_or(in_world_bounds, in_local_bounds)
+                    kept_local = points_local_scene[in_bounds]
+                else:
+                    kept_local = points_local_scene
+
+                if kept_local.shape[0] > 0:
+                    pick = torch.randint(0, kept_local.shape[0], (1,), device=self.device)
+                    selected = kept_local[pick[0]] + env_origin
+                    break
+
+            if selected is None:
+                fallback_count += 1
+                points_local = self.navmesh.sample_points_with_padding(
+                    count=1,
+                    height_offset=tuple(height_offset_range),
+                    edge_padding=edge_padding,
+                    oversample_factor=oversample_factor,
+                    max_resample_rounds=max_resample_rounds,
+                    strict_edge_padding=strict_edge_padding,
+                    min_edge_padding_ratio=min_edge_padding_ratio,
+                    padding_relaxation_factor=padding_relaxation_factor,
+                    max_padding_relax_rounds=max_padding_relax_rounds,
+                ).to(self.device)
+                selected = self._apply_scene_transform(points_local)[0] + env_origin
+
+            selected_points_world.append(selected.unsqueeze(0))
+
+        if fallback_count > 0:
+            self.logger.warning(
+                "Navmesh spawn sampling fallback used for %d/%d envs.",
+                fallback_count,
+                len(env_ids),
+            )
+
+        return torch.cat(selected_points_world, dim=0)
+
+    def apply_spawn(self, robot_state_tensor, env_ids, env_bounds_min=None, env_bounds_max=None):
         if not self.enabled or self.navmesh is None or len(env_ids) == 0:
             return
 
         spawn_h = getattr(self.nav_cfg, "spawn_height_offset_range", [0.0, 0.0])
-        spawn_points = self.sample_world_points(env_ids=env_ids, height_offset_range=spawn_h)
+        spawn_points = self.sample_world_points(
+            env_ids=env_ids,
+            height_offset_range=spawn_h,
+            bounds_min=env_bounds_min,
+            bounds_max=env_bounds_max,
+        )
         if spawn_points is None:
             return
 

@@ -320,6 +320,8 @@ class EnvManager(BaseManager):
             self.navmesh_sampler.apply_spawn(
                 robot_state_tensor=self.global_tensor_dict["robot_state_tensor"],
                 env_ids=env_ids,
+                env_bounds_min=self.global_tensor_dict.get("env_bounds_min", None),
+                env_bounds_max=self.global_tensor_dict.get("env_bounds_max", None),
             )
 
         self.IGE_env.write_to_sim()

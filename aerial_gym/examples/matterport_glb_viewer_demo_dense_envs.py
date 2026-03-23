@@ -4,9 +4,13 @@ import random
 
 import numpy as np
 from PIL import Image
-import trimesh as tm
 
 from aerial_gym.config.env_config.matterport_glb_env import MatterportGLBEnvCfg
+from aerial_gym.benchmark.matterport_spawn_helpers import (
+    apply_navmesh_config_from_env,
+    apply_spawn_region_from_env,
+    resolve_scene_bundle_from_env,
+)
 from aerial_gym.config.sensor_config.camera_config.shaded_rgbd_camera_config import (
     ShadedRGBDCameraConfig,
 )
@@ -16,82 +20,6 @@ import torch
 
 
 logger = CustomLogger(__name__)
-
-
-def _parse_vec3(raw: str, name: str) -> np.ndarray:
-    vals = [v.strip() for v in raw.split(",") if v.strip() != ""]
-    if len(vals) != 3:
-        raise ValueError(f"{name} must contain exactly 3 comma-separated values, got: {raw}")
-    return np.array([float(vals[0]), float(vals[1]), float(vals[2])], dtype=np.float32)
-
-
-def _apply_spawn_region_from_env(cfg_cls, prefix: str):
-    """Configure env spawn bounds from env vars.
-
-    Supported options (prefix = AERIAL_GYM_DENSE):
-    - <prefix>_SPAWN_CENTER=x,y,z with <prefix>_SPAWN_BOUNDS=dx,dy,dz (half-extents)
-    - <prefix>_SPAWN_LOWER=x,y,z with <prefix>_SPAWN_UPPER=x,y,z
-    - <prefix>_SPAWN_FROM_SCENE_BOUNDS=1 (+ margin/offset knobs)
-    """
-    lower = None
-    upper = None
-
-    if os.getenv(f"{prefix}_SPAWN_FROM_SCENE_BOUNDS", "0") == "1":
-        scene_file = cfg_cls.static_scene.file
-        scene = tm.load(scene_file, force="scene")
-        b = np.asarray(scene.bounds, dtype=np.float32)
-        scale = float(getattr(cfg_cls.static_scene, "scale", 1.0))
-        translation = np.asarray(
-            getattr(cfg_cls.static_scene, "translation", [0.0, 0.0, 0.0]), dtype=np.float32
-        )
-        b = b * scale + translation[None, :]
-
-        xy_margin = float(os.getenv(f"{prefix}_SCENE_XY_MARGIN", "0.4"))
-        z_min_offset = float(os.getenv(f"{prefix}_SCENE_Z_MIN_OFFSET", "1.0"))
-        z_max_offset = float(os.getenv(f"{prefix}_SCENE_Z_MAX_OFFSET", "0.6"))
-
-        lower = np.array(
-            [b[0, 0] + xy_margin, b[0, 1] + xy_margin, b[0, 2] + z_min_offset],
-            dtype=np.float32,
-        )
-        upper = np.array(
-            [b[1, 0] - xy_margin, b[1, 1] - xy_margin, b[1, 2] + z_max_offset],
-            dtype=np.float32,
-        )
-
-    center_raw = os.getenv(f"{prefix}_SPAWN_CENTER", None)
-    bounds_raw = os.getenv(f"{prefix}_SPAWN_BOUNDS", os.getenv(f"{prefix}_SPAWN_HALF_EXTENTS", None))
-    if center_raw is not None and bounds_raw is not None:
-        center = _parse_vec3(center_raw, f"{prefix}_SPAWN_CENTER")
-        half = _parse_vec3(bounds_raw, f"{prefix}_SPAWN_BOUNDS")
-        lower = center - half
-        upper = center + half
-
-    lower_raw = os.getenv(f"{prefix}_SPAWN_LOWER", None)
-    upper_raw = os.getenv(f"{prefix}_SPAWN_UPPER", None)
-    if lower_raw is not None and upper_raw is not None:
-        lower = _parse_vec3(lower_raw, f"{prefix}_SPAWN_LOWER")
-        upper = _parse_vec3(upper_raw, f"{prefix}_SPAWN_UPPER")
-
-    if lower is None or upper is None:
-        return
-
-    if np.any(upper <= lower):
-        raise ValueError(
-            f"Invalid spawn bounds for {prefix}: lower={lower.tolist()} upper={upper.tolist()}"
-        )
-
-    cfg_cls.env.lower_bound_min = lower.tolist()
-    cfg_cls.env.lower_bound_max = lower.tolist()
-    cfg_cls.env.upper_bound_min = upper.tolist()
-    cfg_cls.env.upper_bound_max = upper.tolist()
-
-    logger.warning(
-        "Configured spawn region from %s: lower=%s upper=%s",
-        prefix,
-        np.array2string(lower, precision=3),
-        np.array2string(upper, precision=3),
-    )
 
 
 def _tile_images_grid(images_u8: np.ndarray) -> np.ndarray:
@@ -117,10 +45,22 @@ if __name__ == "__main__":
     headless = os.getenv("AERIAL_GYM_DEMO_HEADLESS", "1") == "1"
     enable_lighting = os.getenv("AERIAL_GYM_TEXTURE_LIGHTING", "0") == "1"
     debug_uv_checker = os.getenv("AERIAL_GYM_DEBUG_UV_CHECKER", "0") == "1"
+    controller_name = os.getenv("AERIAL_GYM_DENSE_CONTROLLER", "lee_position_control")
 
     # Keep this scene setup identical to matterport_glb_viewer_demo.py, except for spacing.
     MatterportGLBEnvCfg.env.env_spacing = env_spacing
-    _apply_spawn_region_from_env(MatterportGLBEnvCfg, prefix="AERIAL_GYM_DENSE")
+    scene_bundle = resolve_scene_bundle_from_env(
+        MatterportGLBEnvCfg,
+        prefix="AERIAL_GYM_DENSE",
+        logger=logger,
+    )
+    apply_spawn_region_from_env(MatterportGLBEnvCfg, prefix="AERIAL_GYM_DENSE", logger=logger)
+    apply_navmesh_config_from_env(
+        MatterportGLBEnvCfg,
+        prefix="AERIAL_GYM_DENSE",
+        scene_bundle=scene_bundle,
+        logger=logger,
+    )
     ShadedRGBDCameraConfig.enable_lighting = enable_lighting
     ShadedRGBDCameraConfig.debug_uv_checker = debug_uv_checker
 
@@ -139,7 +79,7 @@ if __name__ == "__main__":
         sim_name="base_sim",
         env_name="matterport_glb_env",
         robot_name="base_quadrotor_with_shaded_rgbd_camera",
-        controller_name="lee_velocity_control",
+        controller_name=controller_name,
         args=None,
         device="cuda:0",
         num_envs=num_envs,
@@ -150,24 +90,56 @@ if __name__ == "__main__":
 
     actions = torch.zeros((env_manager.num_envs, 4), device="cuda:0")
     env_manager.reset()
+    robot_position = env_manager.global_tensor_dict["robot_position"]
+    robot_euler_angles = env_manager.global_tensor_dict.get("robot_euler_angles", None)
+    if "env_origins" in env_manager.global_tensor_dict:
+        env_origins = env_manager.global_tensor_dict["env_origins"]
+    elif hasattr(env_manager, "env_origins"):
+        env_origins = env_manager.env_origins
+    else:
+        env_origins = torch.zeros_like(robot_position)
+
+    anchor_local_pos = torch.zeros((env_manager.num_envs, 3), device="cuda:0")
+    anchor_yaw = torch.zeros(env_manager.num_envs, device="cuda:0")
+
+    def refresh_anchors(env_ids=None):
+        local_pos = robot_position - env_origins
+        if env_ids is None:
+            anchor_local_pos[:] = local_pos
+            if robot_euler_angles is not None:
+                anchor_yaw[:] = robot_euler_angles[:, 2]
+            else:
+                anchor_yaw[:] = 0.0
+            return
+
+        if len(env_ids) == 0:
+            return
+        anchor_local_pos[env_ids] = local_pos[env_ids]
+        if robot_euler_angles is not None:
+            anchor_yaw[env_ids] = robot_euler_angles[env_ids, 2]
+        else:
+            anchor_yaw[env_ids] = 0.0
+
+    refresh_anchors()
 
     rgb_frames = []
     env_phase = torch.linspace(0.0, 2.0 * np.pi, env_manager.num_envs, device="cuda:0")
 
     for step in range(num_steps):
         t = float(step)
-        t_tensor = torch.tensor(t, device="cuda:0")
 
-        # Same velocity-control style as the original demo, with small per-env phase offsets
-        # so replicated envs are visually easier to distinguish in the tiled GIF.
-        actions[:, 0] = 0.55 + 0.20 * torch.sin(0.020 * t_tensor + env_phase)
-        actions[:, 1] = 0.18 * torch.sin(0.011 * t_tensor + 0.5 * env_phase)
-        actions[:, 2] = 0.10 * torch.cos(0.015 * t_tensor + 0.7 * env_phase)
-        actions[:, 3] = 0.30 * torch.sin(0.008 * t_tensor + 0.9 * env_phase)
+        actions[:, 0] = anchor_local_pos[:, 0] + 0.55 + 0.20 * torch.sin(0.020 * t + env_phase)
+        actions[:, 1] = anchor_local_pos[:, 1] + 0.18 * torch.sin(0.011 * t + 0.5 * env_phase)
+        actions[:, 2] = anchor_local_pos[:, 2] + 0.10 * torch.cos(0.015 * t + 0.7 * env_phase)
+        actions[:, 3] = anchor_yaw + 0.30 * torch.sin(0.008 * t + 0.9 * env_phase)
 
         env_manager.step(actions=actions)
         env_manager.render(render_components="sensors")
-        env_manager.reset_terminated_and_truncated_envs()
+        reset_env_ids = env_manager.reset_terminated_and_truncated_envs()
+        refresh_anchors(reset_env_ids)
+        if len(reset_env_ids) > 0:
+            actions[reset_env_ids, 0:3] = anchor_local_pos[reset_env_ids]
+            actions[reset_env_ids, 3] = anchor_yaw[reset_env_ids]
 
         if step % capture_every == 0:
             # rgb_pixels shape: (num_envs, num_sensors, H, W, 3)

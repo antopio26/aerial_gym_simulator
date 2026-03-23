@@ -22,5 +22,6 @@ setup(
         "gymnasium",
         "rl-games",
         "sample-factory",
+        "PyYAML",
     ],
 )
