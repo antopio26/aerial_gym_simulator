@@ -29,7 +29,7 @@ class MatterportGLBEnvCfg:
 
     class static_scene:
         enable = True
-        file = "resources/envs/TEEsavR23oF.glb"
+        file = "resources/envs/00801-HaxA7YrQdEC/TEEsavR23oF.glb"
         collision_file = None
         scale = 1.0
         translation = [0.0, 0.0, 0.0]
@@ -43,3 +43,20 @@ class MatterportGLBEnvCfg:
         collision_dynamic_friction = 1.0
         collision_restitution = 0.0
         segmentation_id = 0
+
+    class navmesh_sampling:
+        enable = False
+        # Optional explicit navmesh path. If None, it is auto-resolved from static_scene.file.
+        navmesh_file = None
+
+        # Optional transform layer for navmesh coordinates.
+        inherit_scene_transform = True
+        navmesh_scale = 1.0
+        navmesh_translation = [0.0, 0.0, 0.0]
+
+        # Safe spawn configuration.
+        spawn_height_offset_range = [0.15, 0.40]
+        edge_padding = 0.30
+        oversample_factor = 6
+        max_resample_rounds = 10
+        zero_velocity_on_spawn = True

@@ -26,6 +26,78 @@ import trimesh as tm
 logger = CustomLogger(__name__)
 
 
+def _resolve_benchmark_scene_file(prefix: str):
+    explicit = os.getenv(f"{prefix}_SCENE_FILE", "")
+    if explicit:
+        if not os.path.exists(explicit):
+            raise FileNotFoundError(
+                f"{prefix}_SCENE_FILE was set but file does not exist: {explicit}"
+            )
+        MatterportGLBEnvCfg.static_scene.file = explicit
+        return explicit
+
+    scene_file = MatterportGLBEnvCfg.static_scene.file
+    if os.path.exists(scene_file):
+        return scene_file
+
+    glb_candidates = []
+    for root, _, files in os.walk("resources/envs"):
+        for fname in files:
+            if fname.endswith(".glb"):
+                glb_candidates.append(os.path.join(root, fname))
+
+    if len(glb_candidates) == 0:
+        raise FileNotFoundError(
+            "No .glb files found under resources/envs and default static scene path is invalid."
+        )
+
+    glb_candidates.sort()
+    MatterportGLBEnvCfg.static_scene.file = glb_candidates[0]
+    logger.warning(
+        "Default scene file was invalid. Auto-selected benchmark scene file: %s",
+        MatterportGLBEnvCfg.static_scene.file,
+    )
+    return MatterportGLBEnvCfg.static_scene.file
+
+
+def _apply_navmesh_config_from_env(prefix: str):
+    use_navmesh = os.getenv(f"{prefix}_USE_NAVMESH", "0") == "1"
+    MatterportGLBEnvCfg.navmesh_sampling.enable = use_navmesh
+    if not use_navmesh:
+        return None
+
+    MatterportGLBEnvCfg.navmesh_sampling.navmesh_file = (
+        os.getenv(f"{prefix}_NAVMESH_FILE", "") or None
+    )
+    MatterportGLBEnvCfg.navmesh_sampling.edge_padding = float(
+        os.getenv(f"{prefix}_NAVMESH_EDGE_PADDING", "0.30")
+    )
+    MatterportGLBEnvCfg.navmesh_sampling.oversample_factor = int(
+        os.getenv(f"{prefix}_NAVMESH_OVERSAMPLE_FACTOR", "6")
+    )
+    MatterportGLBEnvCfg.navmesh_sampling.max_resample_rounds = int(
+        os.getenv(f"{prefix}_NAVMESH_MAX_RESAMPLE_ROUNDS", "10")
+    )
+    spawn_h_min = float(os.getenv(f"{prefix}_NAVMESH_SPAWN_HEIGHT_MIN", "0.15"))
+    spawn_h_max = float(os.getenv(f"{prefix}_NAVMESH_SPAWN_HEIGHT_MAX", "0.40"))
+    MatterportGLBEnvCfg.navmesh_sampling.spawn_height_offset_range = [spawn_h_min, spawn_h_max]
+    MatterportGLBEnvCfg.navmesh_sampling.zero_velocity_on_spawn = (
+        os.getenv(f"{prefix}_NAVMESH_ZERO_VELOCITY_ON_SPAWN", "1") == "1"
+    )
+
+    logger.warning(
+        "Enabled env-level navmesh spawn sampling: file=%s edge_padding=%.2f",
+        MatterportGLBEnvCfg.navmesh_sampling.navmesh_file,
+        MatterportGLBEnvCfg.navmesh_sampling.edge_padding,
+    )
+    return {
+        "enabled": True,
+        "navmesh_file": MatterportGLBEnvCfg.navmesh_sampling.navmesh_file,
+        "edge_padding": MatterportGLBEnvCfg.navmesh_sampling.edge_padding,
+        "spawn_height_range": MatterportGLBEnvCfg.navmesh_sampling.spawn_height_offset_range,
+    }
+
+
 def _parse_env_counts(raw: str):
     counts = []
     for token in raw.split(","):
@@ -217,6 +289,7 @@ def _run_case(
 
     actions = torch.zeros((env_manager.num_envs, 4), device=device)
     env_manager.reset()
+
     frames = []
     total_steps = 0
     render_count = 0
@@ -408,7 +481,9 @@ if __name__ == "__main__":
             max_range=max_range,
             enable_lighting=enable_lighting,
         )
+        _resolve_benchmark_scene_file(prefix="AERIAL_GYM_BENCH")
         _apply_spawn_region_from_env(MatterportGLBEnvCfg, prefix="AERIAL_GYM_BENCH")
+        navmesh_settings = _apply_navmesh_config_from_env(prefix="AERIAL_GYM_BENCH")
         row = _run_case(
             robot_name=robot_name,
             controller_name=controller_name,
@@ -423,6 +498,8 @@ if __name__ == "__main__":
             gif_duration_ms=gif_duration_ms,
             render_every=render_every,
         )
+        if navmesh_settings is not None:
+            row["navmesh_settings"] = navmesh_settings
         print("RESULT_JSON:" + json.dumps(row))
         raise SystemExit(0)
 
@@ -447,6 +524,11 @@ if __name__ == "__main__":
     gif_duration_ms = int(os.getenv("AERIAL_GYM_BENCH_GIF_DURATION_MS", "60"))
     render_every = int(os.getenv("AERIAL_GYM_BENCH_RENDER_EVERY", "1"))
     controller_name = os.getenv("AERIAL_GYM_BENCH_CONTROLLER_NAME", "lee_position_control")
+    navmesh_enabled = os.getenv("AERIAL_GYM_BENCH_USE_NAVMESH", "0") == "1"
+    navmesh_file = os.getenv("AERIAL_GYM_BENCH_NAVMESH_FILE", "") or None
+    navmesh_edge_padding = float(os.getenv("AERIAL_GYM_BENCH_NAVMESH_EDGE_PADDING", "0.30"))
+    navmesh_spawn_height_min = float(os.getenv("AERIAL_GYM_BENCH_NAVMESH_SPAWN_HEIGHT_MIN", "0.15"))
+    navmesh_spawn_height_max = float(os.getenv("AERIAL_GYM_BENCH_NAVMESH_SPAWN_HEIGHT_MAX", "0.40"))
 
     _configure_camera_classes(
         width=width,
@@ -454,6 +536,7 @@ if __name__ == "__main__":
         max_range=max_range,
         enable_lighting=enable_lighting,
     )
+    selected_scene_file = _resolve_benchmark_scene_file(prefix="AERIAL_GYM_BENCH")
     spawn_region = _apply_spawn_region_from_env(MatterportGLBEnvCfg, prefix="AERIAL_GYM_BENCH")
 
     logger.warning(
@@ -535,6 +618,11 @@ if __name__ == "__main__":
             "gif_max_frames": gif_max_frames,
             "gif_duration_ms": gif_duration_ms,
             "spawn_region": spawn_region,
+            "scene_file": selected_scene_file,
+            "navmesh_enabled": navmesh_enabled,
+            "navmesh_file": navmesh_file,
+            "navmesh_edge_padding": navmesh_edge_padding,
+            "navmesh_spawn_height_range": [navmesh_spawn_height_min, navmesh_spawn_height_max],
         },
         "depth_only": depth_rows,
         "shaded_rgbd": rgbd_rows,

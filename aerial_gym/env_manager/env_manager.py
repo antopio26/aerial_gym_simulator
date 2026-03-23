@@ -7,6 +7,7 @@ from aerial_gym.env_manager.asset_loader import AssetLoader
 from aerial_gym.robots.robot_manager import RobotManagerIGE
 from aerial_gym.env_manager.obstacle_manager import ObstacleManager
 from aerial_gym.env_manager.static_scene import StaticSceneGLB
+from aerial_gym.env_manager.navmesh_sampler import NavMeshSpawnSampler
 
 
 from aerial_gym.registry.env_registry import env_config_registry
@@ -66,6 +67,7 @@ class EnvManager(BaseManager):
         self.asset_manager = None
         self.tensor_manager = None
         self.env_args = args
+        self.navmesh_sampler = None
 
         self.keep_in_env = None
 
@@ -286,6 +288,15 @@ class EnvManager(BaseManager):
         )
         self.obstacle_manager.prepare_for_sim(self.global_tensor_dict)
         self.num_robot_actions = self.global_tensor_dict["num_robot_actions"]
+        self._setup_navmesh_sampler()
+
+    def _setup_navmesh_sampler(self):
+        self.navmesh_sampler = NavMeshSpawnSampler(
+            env_cfg=self.cfg,
+            env_origins=self.IGE_env.env_origins,
+            device=self.device,
+            logger=logger,
+        )
 
     def reset_idx(self, env_ids=None):
         """
@@ -296,11 +307,21 @@ class EnvManager(BaseManager):
         # then reset the warp environment if it is being used that reads the state tensors from the assets and transforms meshes
         # finally reset the robot manager that resets the robot state tensors and the sensors
         # logger.debug(f"Resetting environments {env_ids}.")
+        if env_ids is None:
+            env_ids = torch.arange(self.cfg.env.num_envs, device=self.device)
+
         self.IGE_env.reset_idx(env_ids)
         self.asset_manager.reset_idx(env_ids, self.global_tensor_dict["num_obstacles_in_env"])
         if self.cfg.env.use_warp:
             self.warp_env.reset_idx(env_ids)
         self.robot_manager.reset_idx(env_ids)
+
+        if self.navmesh_sampler is not None and self.navmesh_sampler.enabled:
+            self.navmesh_sampler.apply_spawn(
+                robot_state_tensor=self.global_tensor_dict["robot_state_tensor"],
+                env_ids=env_ids,
+            )
+
         self.IGE_env.write_to_sim()
         self.sim_steps[env_ids] = 0
 

@@ -108,6 +108,10 @@ class NavigationTask(BaseTask):
         self.truncations = self.obs_dict["truncations"]
         self.rewards = torch.zeros(self.truncations.shape[0], device=self.device)
 
+        self.navmesh_goal_sampling_enabled = False
+        self.goal_navmesh_sampler = None
+        self._setup_navmesh_goal_sampling()
+
         self.observation_space = Dict(
             {
                 "observations": Box(
@@ -164,6 +168,17 @@ class NavigationTask(BaseTask):
         return self.get_return_tuple()
 
     def reset_idx(self, env_ids):
+        if len(env_ids) == 0:
+            self.infos = {}
+            return
+
+        if self.navmesh_goal_sampling_enabled:
+            goal_world = self._sample_navmesh_goals(env_ids)
+            if goal_world is not None:
+                self.target_position[env_ids] = goal_world
+                self.infos = {}
+                return
+
         target_ratio = torch_rand_float_tensor(self.target_min_ratio, self.target_max_ratio)
         self.target_position[env_ids] = torch_interpolate_ratio(
             min=self.obs_dict["env_bounds_min"][env_ids],
@@ -173,6 +188,60 @@ class NavigationTask(BaseTask):
         # logger.warning(f"reset envs: {env_ids}")
         self.infos = {}
         return
+
+    def _setup_navmesh_goal_sampling(self):
+        nav_cfg = getattr(self.task_config, "navmesh_sampling", None)
+        if nav_cfg is None or not getattr(nav_cfg, "enable", False):
+            return
+
+        self.goal_navmesh_sampler = getattr(self.sim_env, "navmesh_sampler", None)
+        if self.goal_navmesh_sampler is None or not self.goal_navmesh_sampler.enabled:
+            logger.warning(
+                "Task navmesh goal sampling enabled, but env navmesh sampler is not active. "
+                "Enable navmesh_sampling in env config as well."
+            )
+            return
+
+        self.navmesh_goal_sampling_enabled = True
+        logger.info("Enabled task navmesh goal sampling using env-level navmesh sampler.")
+
+    def _sample_navmesh_goals(self, env_ids):
+        if self.goal_navmesh_sampler is None:
+            return None
+
+        nav_cfg = self.task_config.navmesh_sampling
+        goal_h = tuple(getattr(nav_cfg, "goal_height_offset_range", [0.0, 0.0]))
+        goals = self.goal_navmesh_sampler.sample_world_points(
+            env_ids=env_ids,
+            height_offset_range=goal_h,
+        )
+        if goals is None:
+            return None
+
+        min_sep = float(getattr(nav_cfg, "goal_min_separation", 0.0) or 0.0)
+        max_sep_cfg = getattr(nav_cfg, "goal_max_separation", None)
+        max_sep = float(max_sep_cfg) if max_sep_cfg is not None else None
+        max_attempts = int(getattr(nav_cfg, "max_pair_sampling_attempts", 4))
+
+        if min_sep > 0.0 or max_sep is not None:
+            robot_pos = self.obs_dict["robot_position"][env_ids]
+            for _ in range(max_attempts):
+                planar_dist = torch.norm(goals[:, [0, 2]] - robot_pos[:, [0, 2]], dim=1)
+                invalid = planar_dist < min_sep
+                if max_sep is not None:
+                    invalid = torch.logical_or(invalid, planar_dist > max_sep)
+                if not torch.any(invalid):
+                    break
+                invalid_env_ids = env_ids[invalid]
+                resampled = self.goal_navmesh_sampler.sample_world_points(
+                    env_ids=invalid_env_ids,
+                    height_offset_range=goal_h,
+                )
+                if resampled is None:
+                    break
+                goals[invalid] = resampled
+
+        return goals
 
     def render(self):
         return self.sim_env.render()

@@ -221,8 +221,9 @@ class StandaloneNavMesh:
         v2s = self.pt_vertices[selected_tris[:, 2]]
         
         # 3. Generate random Barycentric coordinates for each sample
-        u = torch.rand(count, 1)
-        v = torch.rand(count, 1)
+        sample_device = self.pt_vertices.device
+        u = torch.rand(count, 1, device=sample_device)
+        v = torch.rand(count, 1, device=sample_device)
         
         # If u + v > 1, reflect it back to stay inside the triangle
         mask = (u + v) > 1.0
@@ -236,10 +237,105 @@ class StandaloneNavMesh:
         if height_offset is not None and isinstance(height_offset, tuple):
             min_h, max_h = height_offset
             # Add uniform random offsets in [min_h, max_h] to the Y axis (index 1)
-            offsets = (max_h - min_h) * torch.rand(count) + min_h
+            offsets = (max_h - min_h) * torch.rand(count, device=sample_device) + min_h
             sampled_points[:, 1] += offsets
             
         return sampled_points
+
+    def _compute_edge_padding_mask(self, sampled_points, selected_tris, edge_padding):
+        """
+        Returns a boolean mask marking points whose 2D distance to each selected
+        triangle edge is at least `edge_padding`.
+        """
+        if edge_padding <= 0.0:
+            return torch.ones(sampled_points.shape[0], dtype=torch.bool, device=sampled_points.device)
+
+        pts = sampled_points[:, [0, 2]]
+        v0 = self.pt_vertices[selected_tris[:, 0]][:, [0, 2]]
+        v1 = self.pt_vertices[selected_tris[:, 1]][:, [0, 2]]
+        v2 = self.pt_vertices[selected_tris[:, 2]][:, [0, 2]]
+
+        edges_a = torch.stack((v0, v1, v2), dim=1)
+        edges_b = torch.stack((v1, v2, v0), dim=1)
+
+        ab = edges_b - edges_a
+        ap = pts.unsqueeze(1) - edges_a
+        ab_sq = torch.sum(ab * ab, dim=2)
+
+        # Handle potential degenerate edges safely.
+        ab_sq = torch.clamp(ab_sq, min=1.0e-12)
+        t = torch.sum(ap * ab, dim=2) / ab_sq
+        t = torch.clamp(t, 0.0, 1.0)
+        closest = edges_a + t.unsqueeze(-1) * ab
+        dists = torch.norm(pts.unsqueeze(1) - closest, dim=2)
+        min_dist = torch.min(dists, dim=1)[0]
+        return min_dist >= edge_padding
+
+    def sample_points_with_padding(
+        self,
+        count,
+        height_offset=None,
+        edge_padding=0.0,
+        oversample_factor=4,
+        max_resample_rounds=8,
+    ):
+        """
+        Sample points from the NavMesh while enforcing a 2D minimum distance from
+        triangle edges, useful for obstacle-safe spawn/goal placement.
+        """
+        if torch is None or self.pt_polygons is None:
+            raise RuntimeError("PyTorch is not available or Navmesh is empty.")
+
+        sample_device = self.pt_vertices.device
+
+        if count <= 0:
+            return torch.zeros((0, 3), dtype=torch.float32, device=sample_device)
+
+        if edge_padding <= 0.0:
+            return self.sample_points(count=count, height_offset=height_offset)
+
+        accepted_chunks = []
+        accepted_count = 0
+        candidate_count = max(int(count * oversample_factor), count)
+
+        for _ in range(max_resample_rounds):
+            tri_indices = torch.multinomial(self.pt_poly_areas, candidate_count, replacement=True)
+
+            selected_tris = self.pt_polygons[tri_indices]
+            v0s = self.pt_vertices[selected_tris[:, 0]]
+            v1s = self.pt_vertices[selected_tris[:, 1]]
+            v2s = self.pt_vertices[selected_tris[:, 2]]
+
+            u = torch.rand(candidate_count, 1, device=sample_device)
+            v = torch.rand(candidate_count, 1, device=sample_device)
+            mask_uv = (u + v) > 1.0
+            u[mask_uv] = 1.0 - u[mask_uv]
+            v[mask_uv] = 1.0 - v[mask_uv]
+            w = 1.0 - u - v
+
+            candidates = (w * v0s) + (u * v1s) + (v * v2s)
+
+            if height_offset is not None and isinstance(height_offset, tuple):
+                min_h, max_h = height_offset
+                offsets = (max_h - min_h) * torch.rand(candidate_count, device=sample_device) + min_h
+                candidates[:, 1] += offsets
+
+            keep_mask = self._compute_edge_padding_mask(candidates, selected_tris, edge_padding)
+            kept = candidates[keep_mask]
+            if kept.shape[0] > 0:
+                accepted_chunks.append(kept)
+                accepted_count += kept.shape[0]
+            if accepted_count >= count:
+                break
+
+        if accepted_count == 0:
+            return self.sample_points(count=count, height_offset=height_offset)
+
+        accepted = torch.cat(accepted_chunks, dim=0)
+        if accepted.shape[0] < count:
+            fallback = self.sample_points(count=count - accepted.shape[0], height_offset=height_offset)
+            accepted = torch.cat((accepted, fallback), dim=0)
+        return accepted[:count]
 
     def is_navigable(self, points, height_tol=0.5):
         """

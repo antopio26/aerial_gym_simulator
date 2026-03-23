@@ -26,6 +26,16 @@ class task_config:
     target_min_ratio = [0.90, 0.1, 0.1]  # target ratio w.r.t environment bounds in x,y,z
     target_max_ratio = [0.94, 0.90, 0.90]  # target ratio w.r.t environment bounds in x,y,z
 
+    class navmesh_sampling:
+        enable = False
+        # Goal sampling is task-level; spawn sampling is handled in env config.
+        goal_height_offset_range = [0.15, 0.40]
+
+        # Enforce separation between spawn and goal for each environment.
+        goal_min_separation = 3.0
+        goal_max_separation = None
+        max_pair_sampling_attempts = 6
+
     reward_parameters = {
         "pos_reward_magnitude": 5.0,
         "pos_reward_exponent": 1.0 / 3.5,
