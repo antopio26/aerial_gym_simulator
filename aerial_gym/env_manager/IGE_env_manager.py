@@ -147,16 +147,20 @@ class IsaacGymEnv(BaseManager):
         """
         Create an environment with the given id
         """
-        min_bound_vec3 = gymapi.Vec3(
-            self.cfg.env.lower_bound_min[0],
-            self.cfg.env.lower_bound_min[1],
-            self.cfg.env.lower_bound_min[2],
-        )
-        max_bound_vec3 = gymapi.Vec3(
-            self.cfg.env.upper_bound_max[0],
-            self.cfg.env.upper_bound_max[1],
-            self.cfg.env.upper_bound_max[2],
-        )
+        if hasattr(self.cfg.env, "env_spacing") and self.cfg.env.env_spacing == 0.0:
+            min_bound_vec3 = gymapi.Vec3(0.0, 0.0, 0.0)
+            max_bound_vec3 = gymapi.Vec3(0.0, 0.0, 0.0)
+        else:
+            min_bound_vec3 = gymapi.Vec3(
+                self.cfg.env.lower_bound_min[0],
+                self.cfg.env.lower_bound_min[1],
+                self.cfg.env.lower_bound_min[2],
+            )
+            max_bound_vec3 = gymapi.Vec3(
+                self.cfg.env.upper_bound_max[0],
+                self.cfg.env.upper_bound_max[1],
+                self.cfg.env.upper_bound_max[2],
+            )
         env_handle = self.gym.create_env(
             self.sim,
             min_bound_vec3,

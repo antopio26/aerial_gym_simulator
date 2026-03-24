@@ -146,8 +146,18 @@ def _build_hold_actions(env_manager, device):
     robot_euler_angles = env_manager.global_tensor_dict.get("robot_euler_angles", None)
     if "env_origins" in env_manager.global_tensor_dict:
         env_origins = env_manager.global_tensor_dict["env_origins"]
+    elif hasattr(env_manager, "IGE_env") and hasattr(env_manager.IGE_env, "env_origins"):
+        env_origins = torch.tensor(
+            env_manager.IGE_env.env_origins,
+            dtype=robot_position.dtype,
+            device=robot_position.device,
+        )
     elif hasattr(env_manager, "env_origins"):
-        env_origins = env_manager.env_origins
+        env_origins = torch.tensor(
+            env_manager.env_origins,
+            dtype=robot_position.dtype,
+            device=robot_position.device,
+        )
     else:
         env_origins = torch.zeros_like(robot_position)
 
@@ -204,8 +214,18 @@ def run_debug(
     robot_position = env_manager.global_tensor_dict["robot_position"]
     if "env_origins" in env_manager.global_tensor_dict:
         env_origins = env_manager.global_tensor_dict["env_origins"]
+    elif hasattr(env_manager, "IGE_env") and hasattr(env_manager.IGE_env, "env_origins"):
+        env_origins = torch.tensor(
+            env_manager.IGE_env.env_origins,
+            dtype=robot_position.dtype,
+            device=robot_position.device,
+        )
     elif hasattr(env_manager, "env_origins"):
-        env_origins = env_manager.env_origins
+        env_origins = torch.tensor(
+            env_manager.env_origins,
+            dtype=robot_position.dtype,
+            device=robot_position.device,
+        )
     else:
         env_origins = torch.zeros_like(robot_position)
     env_bounds_min = env_manager.global_tensor_dict.get("env_bounds_min", None)

@@ -2,7 +2,7 @@ class MatterportGLBEnvCfg:
     class env:
         num_envs = 1
         num_env_actions = 0
-        env_spacing = 1.0
+        env_spacing = 0.0
 
         num_physics_steps_per_env_step_mean = 1
         num_physics_steps_per_env_step_std = 0
@@ -18,10 +18,10 @@ class MatterportGLBEnvCfg:
 
         use_warp = True
 
-        lower_bound_min = [-11.0, -0.5, 0.4]
-        lower_bound_max = [-8.0, 1.5, 1.2]
-        upper_bound_min = [1.0, 8.5, 2.0]
-        upper_bound_max = [3.0, 9.5, 3.0]
+        lower_bound_min = [-6.0, -5.0, 0.4]
+        lower_bound_max = [-3.0, -3.0, 1.2]
+        upper_bound_min = [6.0, 3.5, 2.0]
+        upper_bound_max = [8.0, 4.5, 3.0]
 
     class env_config:
         include_asset_type = {}
@@ -32,7 +32,7 @@ class MatterportGLBEnvCfg:
         file = "resources/envs/00801-HaxA7YrQdEC/TEEsavR23oF.glb"
         collision_file = None
         scale = 1.0
-        translation = [0.0, 0.0, 0.0]
+        translation = [5.0, -5.0, 0.0]
         enable_texture_rendering = True
         # Resolution per unique texture tile in the deduplicated atlas.
         # 41 unique tiles at 2048px → 7×6 atlas ~14336×12288 (~2 GB float32 GPU).
