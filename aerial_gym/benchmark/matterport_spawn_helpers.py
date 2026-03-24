@@ -142,20 +142,6 @@ def apply_navmesh_config(
 
     cfg_cls.navmesh_sampling.navmesh_file = navmesh_file
     cfg_cls.navmesh_sampling.edge_padding = float(navmesh_cfg.get("edge_padding", 0.30))
-    cfg_cls.navmesh_sampling.oversample_factor = int(navmesh_cfg.get("oversample_factor", 6))
-    cfg_cls.navmesh_sampling.max_resample_rounds = int(navmesh_cfg.get("max_resample_rounds", 10))
-    cfg_cls.navmesh_sampling.strict_edge_padding = bool(
-        navmesh_cfg.get("strict_edge_padding", True)
-    )
-    cfg_cls.navmesh_sampling.min_edge_padding_ratio = float(
-        navmesh_cfg.get("min_edge_padding_ratio", 0.35)
-    )
-    cfg_cls.navmesh_sampling.padding_relaxation_factor = float(
-        navmesh_cfg.get("padding_relaxation_factor", 0.70)
-    )
-    cfg_cls.navmesh_sampling.max_padding_relax_rounds = int(
-        navmesh_cfg.get("max_padding_relax_rounds", 3)
-    )
     cfg_cls.navmesh_sampling.enforce_env_bounds = bool(navmesh_cfg.get("enforce_env_bounds", True))
     cfg_cls.navmesh_sampling.max_bound_resample_rounds = int(
         navmesh_cfg.get("max_bound_resample_rounds", 5)
@@ -185,7 +171,6 @@ def apply_navmesh_config(
         "navmesh_file": cfg_cls.navmesh_sampling.navmesh_file,
         "edge_padding": cfg_cls.navmesh_sampling.edge_padding,
         "spawn_height_range": cfg_cls.navmesh_sampling.spawn_height_offset_range,
-        "strict_edge_padding": cfg_cls.navmesh_sampling.strict_edge_padding,
         "enforce_env_bounds": cfg_cls.navmesh_sampling.enforce_env_bounds,
     }
 
@@ -311,18 +296,6 @@ def apply_navmesh_config_from_env(
         "enabled": enabled_value,
         "navmesh_file": os.getenv(f"{prefix}_NAVMESH_FILE", "") or None,
         "edge_padding": float(os.getenv(f"{prefix}_NAVMESH_EDGE_PADDING", "0.30")),
-        "oversample_factor": int(os.getenv(f"{prefix}_NAVMESH_OVERSAMPLE_FACTOR", "6")),
-        "max_resample_rounds": int(os.getenv(f"{prefix}_NAVMESH_MAX_RESAMPLE_ROUNDS", "10")),
-        "strict_edge_padding": os.getenv(f"{prefix}_NAVMESH_STRICT_EDGE_PADDING", "1") == "1",
-        "min_edge_padding_ratio": float(
-            os.getenv(f"{prefix}_NAVMESH_MIN_EDGE_PADDING_RATIO", "0.35")
-        ),
-        "padding_relaxation_factor": float(
-            os.getenv(f"{prefix}_NAVMESH_PADDING_RELAXATION_FACTOR", "0.70")
-        ),
-        "max_padding_relax_rounds": int(
-            os.getenv(f"{prefix}_NAVMESH_MAX_PADDING_RELAX_ROUNDS", "3")
-        ),
         "enforce_env_bounds": os.getenv(f"{prefix}_NAVMESH_ENFORCE_ENV_BOUNDS", "1") == "1",
         "max_bound_resample_rounds": int(
             os.getenv(f"{prefix}_NAVMESH_MAX_BOUND_RESAMPLE_ROUNDS", "5")

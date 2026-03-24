@@ -115,14 +115,6 @@ class NavMeshSpawnSampler:
 
         env_ids = env_ids.to(dtype=torch.long, device=self.device)
         edge_padding = float(getattr(self.nav_cfg, "edge_padding", 0.0))
-        oversample_factor = int(getattr(self.nav_cfg, "oversample_factor", 4))
-        max_resample_rounds = int(getattr(self.nav_cfg, "max_resample_rounds", 8))
-        strict_edge_padding = bool(getattr(self.nav_cfg, "strict_edge_padding", True))
-        min_edge_padding_ratio = float(getattr(self.nav_cfg, "min_edge_padding_ratio", 0.35))
-        padding_relaxation_factor = float(
-            getattr(self.nav_cfg, "padding_relaxation_factor", 0.70)
-        )
-        max_padding_relax_rounds = int(getattr(self.nav_cfg, "max_padding_relax_rounds", 3))
         enforce_bounds = bool(getattr(self.nav_cfg, "enforce_env_bounds", True))
         max_bound_resample_rounds = int(getattr(self.nav_cfg, "max_bound_resample_rounds", 5))
 
@@ -132,7 +124,7 @@ class NavMeshSpawnSampler:
             bounds_min_env = bounds_min.to(self.device)[env_ids]
             bounds_max_env = bounds_max.to(self.device)[env_ids]
 
-        candidate_count = max(oversample_factor * 4, 8)
+        candidate_count = 8 # Oversampling is handled efficiently inside sample_points_with_padding now
         selected_points_world = []
         fallback_count = 0
 
@@ -145,12 +137,6 @@ class NavMeshSpawnSampler:
                     count=candidate_count,
                     height_offset=tuple(height_offset_range),
                     edge_padding=edge_padding,
-                    oversample_factor=oversample_factor,
-                    max_resample_rounds=max_resample_rounds,
-                    strict_edge_padding=strict_edge_padding,
-                    min_edge_padding_ratio=min_edge_padding_ratio,
-                    padding_relaxation_factor=padding_relaxation_factor,
-                    max_padding_relax_rounds=max_padding_relax_rounds,
                 ).to(self.device)
                 points_local_scene = self._apply_scene_transform(points_local)
 
@@ -185,12 +171,6 @@ class NavMeshSpawnSampler:
                     count=1,
                     height_offset=tuple(height_offset_range),
                     edge_padding=edge_padding,
-                    oversample_factor=oversample_factor,
-                    max_resample_rounds=max_resample_rounds,
-                    strict_edge_padding=strict_edge_padding,
-                    min_edge_padding_ratio=min_edge_padding_ratio,
-                    padding_relaxation_factor=padding_relaxation_factor,
-                    max_padding_relax_rounds=max_padding_relax_rounds,
                 ).to(self.device)
                 selected = self._apply_scene_transform(points_local)[0] + env_origin
 

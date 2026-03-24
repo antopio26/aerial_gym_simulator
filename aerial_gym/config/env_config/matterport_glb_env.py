@@ -57,12 +57,6 @@ class MatterportGLBEnvCfg:
         # Safe spawn configuration.
         spawn_height_offset_range = [0.15, 0.40]
         edge_padding = 0.30
-        oversample_factor = 6
-        max_resample_rounds = 10
-        strict_edge_padding = True
-        min_edge_padding_ratio = 0.35
-        padding_relaxation_factor = 0.70
-        max_padding_relax_rounds = 3
         enforce_env_bounds = True
         max_bound_resample_rounds = 5
         zero_velocity_on_spawn = True

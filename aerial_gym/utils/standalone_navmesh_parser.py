@@ -216,6 +216,24 @@ class StandaloneNavMesh:
             self.height_axis = dominant_axis
             self.planar_axes = tuple(ax for ax in (0, 1, 2) if ax != self.height_axis)
         
+        # Build boundary edges tensor. Boundary edges appear exactly once in the list of all polygon edges.
+        if len(self.pt_polygons) > 0:
+            edge_1 = self.pt_polygons[:, [0, 1]]
+            edge_2 = self.pt_polygons[:, [1, 2]]
+            edge_3 = self.pt_polygons[:, [2, 0]]
+            all_edges = torch.cat([edge_1, edge_2, edge_3], dim=0)
+            
+            # Sort each edge to make them undirected
+            sorted_edges, _ = torch.sort(all_edges, dim=1)
+            
+            # Find unique edges and their counts
+            unique_edges, counts = torch.unique(sorted_edges, dim=0, return_counts=True)
+            
+            # Boundary edges are those that appear exactly once
+            self.pt_boundary_edges = unique_edges[counts == 1]
+        else:
+            self.pt_boundary_edges = torch.zeros((0, 2), dtype=torch.long)
+
     def sample_points(self, count, height_offset=None):
         """
         Sample `count` points uniformly from the NavMesh using PyTorch.
@@ -256,33 +274,32 @@ class StandaloneNavMesh:
             
         return sampled_points
 
-    def _compute_edge_padding_mask(self, sampled_points, selected_tris, edge_padding):
+    def _compute_edge_padding_mask(self, sampled_points, edge_padding):
         """
-        Returns a boolean mask marking points whose 2D distance to each selected
-        triangle edge is at least `edge_padding`.
+        Returns a boolean mask marking points whose 2D distance to any boundary
+        edge is at least `edge_padding`.
         """
-        if edge_padding <= 0.0:
+        if edge_padding <= 0.0 or self.pt_boundary_edges.shape[0] == 0:
             return torch.ones(sampled_points.shape[0], dtype=torch.bool, device=sampled_points.device)
 
         planar = list(self.planar_axes)
         pts = sampled_points[:, planar]
-        v0 = self.pt_vertices[selected_tris[:, 0]][:, planar]
-        v1 = self.pt_vertices[selected_tris[:, 1]][:, planar]
-        v2 = self.pt_vertices[selected_tris[:, 2]][:, planar]
-
-        edges_a = torch.stack((v0, v1, v2), dim=1)
-        edges_b = torch.stack((v1, v2, v0), dim=1)
+        
+        edges_a = self.pt_vertices[self.pt_boundary_edges[:, 0]][:, planar]
+        edges_b = self.pt_vertices[self.pt_boundary_edges[:, 1]][:, planar]
 
         ab = edges_b - edges_a
-        ap = pts.unsqueeze(1) - edges_a
-        ab_sq = torch.sum(ab * ab, dim=2)
+        ap = pts.unsqueeze(1) - edges_a.unsqueeze(0)
+        ab_sq = torch.sum(ab * ab, dim=1)
 
         # Handle potential degenerate edges safely.
         ab_sq = torch.clamp(ab_sq, min=1.0e-12)
-        t = torch.sum(ap * ab, dim=2) / ab_sq
+        t = torch.sum(ap * ab.unsqueeze(0), dim=2) / ab_sq.unsqueeze(0)
         t = torch.clamp(t, 0.0, 1.0)
-        closest = edges_a + t.unsqueeze(-1) * ab
-        dists = torch.norm(pts.unsqueeze(1) - closest, dim=2)
+        
+        diff = ap - t.unsqueeze(-1) * ab.unsqueeze(0)
+        dists = torch.norm(diff, dim=2)
+        
         min_dist = torch.min(dists, dim=1)[0]
         return min_dist >= edge_padding
 
@@ -291,16 +308,11 @@ class StandaloneNavMesh:
         count,
         height_offset=None,
         edge_padding=0.0,
-        oversample_factor=4,
-        max_resample_rounds=8,
-        strict_edge_padding=True,
-        min_edge_padding_ratio=0.35,
-        padding_relaxation_factor=0.70,
-        max_padding_relax_rounds=3,
+        **kwargs
     ):
         """
-        Sample points from the NavMesh while enforcing a 2D minimum distance from
-        triangle edges, useful for obstacle-safe spawn/goal placement.
+        Sample points uniformly from the NavMesh while enforcing a 2D minimum distance from
+        the outer boundary edges of the navmesh.
         """
         if torch is None or self.pt_polygons is None:
             raise RuntimeError("PyTorch is not available or Navmesh is empty.")
@@ -313,66 +325,34 @@ class StandaloneNavMesh:
         if edge_padding <= 0.0:
             return self.sample_points(count=count, height_offset=height_offset)
 
-        accepted = torch.zeros((0, 3), dtype=torch.float32, device=sample_device)
-        candidate_count = max(int(count * oversample_factor), count)
+        accepted_chunks = []
+        accepted_count = 0
+        candidate_count = max(count * 4, 8)  # Oversample by 4x to account for padding losses
+        max_resample_rounds = 10
 
-        min_edge_padding_ratio = float(np.clip(min_edge_padding_ratio, 0.0, 1.0))
-        padding_relaxation_factor = float(np.clip(padding_relaxation_factor, 0.05, 0.99))
-        target_min_padding = edge_padding * min_edge_padding_ratio if strict_edge_padding else 0.0
-        curr_padding = float(edge_padding)
-
-        for relax_round in range(max_padding_relax_rounds + 1):
-            accepted_chunks = []
-            accepted_count = 0
-
-            for _ in range(max_resample_rounds):
-                tri_indices = torch.multinomial(self.pt_poly_areas, candidate_count, replacement=True)
-
-                selected_tris = self.pt_polygons[tri_indices]
-                v0s = self.pt_vertices[selected_tris[:, 0]]
-                v1s = self.pt_vertices[selected_tris[:, 1]]
-                v2s = self.pt_vertices[selected_tris[:, 2]]
-
-                u = torch.rand(candidate_count, 1, device=sample_device)
-                v = torch.rand(candidate_count, 1, device=sample_device)
-                mask_uv = (u + v) > 1.0
-                u[mask_uv] = 1.0 - u[mask_uv]
-                v[mask_uv] = 1.0 - v[mask_uv]
-                w = 1.0 - u - v
-
-                candidates = (w * v0s) + (u * v1s) + (v * v2s)
-
-                if height_offset is not None and isinstance(height_offset, tuple):
-                    min_h, max_h = height_offset
-                    offsets = (max_h - min_h) * torch.rand(candidate_count, device=sample_device) + min_h
-                    candidates[:, self.height_axis] += offsets
-
-                keep_mask = self._compute_edge_padding_mask(candidates, selected_tris, curr_padding)
-                kept = candidates[keep_mask]
-                if kept.shape[0] > 0:
-                    accepted_chunks.append(kept)
-                    accepted_count += kept.shape[0]
-                if accepted_count >= count:
-                    break
-
-            if accepted_count > 0:
-                accepted = torch.cat(accepted_chunks, dim=0)
-                if accepted.shape[0] >= count:
-                    return accepted[:count]
-
-            if relax_round >= max_padding_relax_rounds:
+        for _ in range(max_resample_rounds):
+            candidates = self.sample_points(count=candidate_count, height_offset=height_offset)
+            
+            keep_mask = self._compute_edge_padding_mask(candidates, edge_padding)
+            kept = candidates[keep_mask]
+            
+            if kept.shape[0] > 0:
+                accepted_chunks.append(kept)
+                accepted_count += kept.shape[0]
+                
+            if accepted_count >= count:
                 break
 
-            next_padding = curr_padding * padding_relaxation_factor
-            curr_padding = max(target_min_padding, next_padding)
-
-        if accepted.shape[0] > 0:
-            # Keep the same safety distribution when we are slightly short.
-            shortfall = count - accepted.shape[0]
-            if shortfall > 0:
+        if accepted_count > 0:
+            accepted = torch.cat(accepted_chunks, dim=0)
+            if accepted.shape[0] >= count:
+                return accepted[:count]
+            else:
+                # If we couldn't get enough within the rounds, duplicate some to meet the count securely
+                shortfall = count - accepted.shape[0]
                 replay_ids = torch.randint(0, accepted.shape[0], (shortfall,), device=sample_device)
                 accepted = torch.cat((accepted, accepted[replay_ids]), dim=0)
-            return accepted[:count]
+                return accepted
 
         print(
             f"Warning: could not find any valid navmesh samples with edge_padding={edge_padding:.3f}. "

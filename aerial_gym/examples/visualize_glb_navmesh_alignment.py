@@ -4,7 +4,9 @@ import os
 import numpy as np
 import trimesh as tm
 
+# Import isaacgym through aerial_gym before torch
 from aerial_gym.utils.standalone_navmesh_parser import StandaloneNavMesh
+import torch
 
 
 def _parse_vec3(raw):
@@ -118,6 +120,36 @@ def main():
         action="store_true",
         help="Do not open interactive viewer; only print alignment stats/export",
     )
+    parser.add_argument(
+        "--num-samples",
+        type=int,
+        default=1000,
+        help="Number of points to sample from the navmesh to visualize as spheres",
+    )
+    parser.add_argument(
+        "--sample-radius",
+        type=float,
+        default=0.02,
+        help="Radius of the sampled point spheres",
+    )
+    parser.add_argument(
+        "--edge-padding",
+        type=float,
+        default=0.3,
+        help="Navmesh sample edge padding (default: 0.3)",
+    )
+    parser.add_argument(
+        "--min-height",
+        type=float,
+        default=0.3,
+        help="Navmesh sample min height offset (default: 0.3)",
+    )
+    parser.add_argument(
+        "--max-height",
+        type=float,
+        default=1.8,
+        help="Navmesh sample max height offset (default: 1.8)",
+    )
 
     args = parser.parse_args()
 
@@ -155,6 +187,41 @@ def main():
     for i, glb_mesh in enumerate(glb_meshes):
         overlay.add_geometry(glb_mesh, geom_name=f"glb_{i}")
     overlay.add_geometry(navmesh_mesh, geom_name="navmesh")
+
+    if args.num_samples > 0:
+        print(f"Sampling {args.num_samples} points from the navmesh...")
+        
+        # Load standalone navmesh parser again just for the advanced safe sampling logic
+        sampler_navmesh = StandaloneNavMesh(args.navmesh)
+        
+        # Apply the exact same structural transformations done for the visualization to keep points aligned
+        sampler_navmesh.pt_vertices = sampler_navmesh.pt_vertices * args.scene_scale + torch.tensor(scene_translation, dtype=torch.float32)
+        sampler_navmesh.pt_vertices = sampler_navmesh.pt_vertices * args.navmesh_scale + torch.tensor(navmesh_translation, dtype=torch.float32)
+        
+        device = torch.device("cpu")
+        sampler_navmesh.pt_vertices = sampler_navmesh.pt_vertices.to(device)
+        sampler_navmesh.pt_polygons = sampler_navmesh.pt_polygons.to(device)
+        sampler_navmesh.pt_poly_areas = sampler_navmesh.pt_poly_areas.to(device)
+        
+        # Pull identical configs mapped from the matterport yaml
+        sampled_pts_tensor = sampler_navmesh.sample_points_with_padding(
+            count=args.num_samples,
+            height_offset=(args.min_height, args.max_height),
+            edge_padding=args.edge_padding,
+        )
+        
+        samples = sampled_pts_tensor.cpu().numpy()
+        
+        base_sphere = tm.creation.icosphere(radius=args.sample_radius)
+        spheres = []
+        for pt in samples:
+            s = base_sphere.copy()
+            s.apply_translation(pt)
+            spheres.append(s)
+        if spheres:
+            spheres_mesh = tm.util.concatenate(spheres)
+            spheres_mesh.visual.face_colors = np.array([40, 220, 40, 255], dtype=np.uint8)
+            overlay.add_geometry(spheres_mesh, geom_name="sampled_points")
 
     if args.export:
         overlay.export(args.export)
