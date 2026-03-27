@@ -84,10 +84,10 @@ class MatterportDCEEvalTaskConfig(_BaseCfg):
 
     class navmesh_sampling:
         enable = True
-        goal_height_offset_range = [0.15, 0.40]
-        goal_min_separation = 3.0
+        goal_height_offset_range = [0.15, 0.40]  # matches spawn_height_offset_range
+        goal_min_separation = 2.0                  # no separation constraint (same as spawn)
         goal_max_separation = None
-        max_pair_sampling_attempts = 6
+        max_pair_sampling_attempts = 6             # single sample, no resampling loop
 
     class vae_config(_BaseCfg.vae_config):
         # Inherited: use_vae=True, latent_dims=64, image_res=(270,480)
@@ -147,14 +147,8 @@ def parse_eval_args():
     p.add_argument(
         "--max_episodes",
         type=int,
-        default=50,
+        default=500,
         help="Stop after this many episodes.",
-    )
-    p.add_argument(
-        "--traj_len",
-        type=int,
-        default=200,
-        help="Maximum number of trajectory waypoints shown in the viewer.",
     )
     p.add_argument(
         "--vis_every",
@@ -327,46 +321,45 @@ def _get_viewer_handles(rl_task):
     return viewer_ctrl.gym, viewer_ctrl.viewer, ige.env_handles[0]
 
 
-def draw_debug(rl_task, traj_list, goal_np, crosshair_half=0.3):
-    """
-    Draw goal crosshair (3 coloured axes) and trajectory trail in the viewer.
+_GOAL_VERTS  = None  # cached (3,6) float32 array — reused each frame
+_GOAL_COLORS = None  # cached (3,3) float32 array
 
-    traj_list  : list of (3,) numpy arrays, most-recent last
-    goal_np    : (3,) numpy array, world-frame goal position
-    """
+
+def draw_debug(rl_task, goal_np, traj_list, cross_half=0.3):
+    """Draw a red cross at the goal and a cyan trajectory trail."""
+    global _GOAL_VERTS, _GOAL_COLORS
+
     gym, viewer, env_handle = _get_viewer_handles(rl_task)
     if gym is None:
         return
 
-    gym.clear_lines(viewer)
-
-    lines = []   # each entry: [x0,y0,z0, x1,y1,z1]
-    colors = []  # each entry: [r,g,b]
-
-    # --- Goal crosshair ---
     gx, gy, gz = float(goal_np[0]), float(goal_np[1]), float(goal_np[2])
-    h = crosshair_half
-    lines.append([gx - h, gy, gz, gx + h, gy, gz])
-    colors.append([1.0, 0.0, 0.0])  # X arm — red
-    lines.append([gx, gy - h, gz, gx, gy + h, gz])
-    colors.append([0.0, 1.0, 0.0])  # Y arm — green
-    lines.append([gx, gy, gz - h, gx, gy, gz + h])
-    colors.append([0.0, 0.0, 1.0])  # Z arm — blue
+    h = cross_half
 
-    # --- Trajectory trail ---
+    if _GOAL_VERTS is None:
+        _GOAL_COLORS = np.array([[1., 0., 0.], [1., 0., 0.], [1., 0., 0.]], dtype=np.float32)
+        _GOAL_VERTS  = np.zeros((3, 6), dtype=np.float32)
+
+    _GOAL_VERTS[0] = [gx - h, gy, gz, gx + h, gy, gz]
+    _GOAL_VERTS[1] = [gx, gy - h, gz, gx, gy + h, gz]
+    _GOAL_VERTS[2] = [gx, gy, gz - h, gx, gy, gz + h]
+
+    # Build trail segments
     n = len(traj_list)
-    for k in range(n - 1):
+    n_trail = max(n - 1, 0)
+    total = 3 + n_trail
+    verts  = np.empty((total, 6), dtype=np.float32)
+    colors = np.empty((total, 3), dtype=np.float32)
+    verts[:3]  = _GOAL_VERTS
+    colors[:3] = _GOAL_COLORS
+    for k in range(n_trail):
         p0, p1 = traj_list[k], traj_list[k + 1]
-        lines.append([p0[0], p0[1], p0[2], p1[0], p1[1], p1[2]])
-        alpha = (k + 1) / max(n - 1, 1)
-        colors.append([0.0, alpha, alpha])  # cyan gradient (dim → bright)
+        verts[3 + k]  = [p0[0], p0[1], p0[2], p1[0], p1[1], p1[2]]
+        alpha = (k + 1) / max(n_trail, 1)
+        colors[3 + k] = [0.0, alpha, alpha]
 
-    if not lines:
-        return
-
-    verts_np = np.array(lines, dtype=np.float32)    # (N, 6)
-    colors_np = np.array(colors, dtype=np.float32)  # (N, 3)
-    gym.add_lines(viewer, env_handle, len(lines), verts_np, colors_np)
+    gym.clear_lines(viewer)
+    gym.add_lines(viewer, env_handle, total, verts, colors)
 
 
 # ---------------------------------------------------------------------------
@@ -402,6 +395,59 @@ class EpisodeStats:
             self.crashes,   100.0 * self.crashes   / self.episodes,
             self.timeouts,  100.0 * self.timeouts   / self.episodes,
         )
+
+
+# ---------------------------------------------------------------------------
+# Logging helpers
+# ---------------------------------------------------------------------------
+
+def _regenerate_goal_with_height_tolerance(rl_task, max_dz=0.5, max_attempts=20):
+    """Resample goal until |goal_z - spawn_z| <= max_dz, without clamping Z."""
+    spawn_z = float(rl_task.obs_dict["robot_position"][0, 2].item())
+
+    def _is_within_tolerance():
+        goal_z = float(rl_task.target_position[0, 2].item())
+        return abs(goal_z - spawn_z) <= max_dz
+
+    if _is_within_tolerance():
+        return True
+
+    env_ids = torch.tensor([0], dtype=torch.long, device=rl_task.target_position.device)
+    for _ in range(max_attempts):
+        if getattr(rl_task, "navmesh_goal_sampling_enabled", False) and getattr(
+            rl_task, "goal_navmesh_sampler", None
+        ) is not None:
+            goals = rl_task._sample_navmesh_goals(env_ids)
+            if goals is not None:
+                rl_task.target_position[env_ids] = goals
+            else:
+                rl_task.reset_idx(env_ids)
+        else:
+            rl_task.reset_idx(env_ids)
+
+        if _is_within_tolerance():
+            return True
+
+    logger.warning(
+        "Could not regenerate goal within %.2f m Z tolerance after %d attempts.",
+        max_dz,
+        max_attempts,
+    )
+    return False
+
+
+def _log_spawn_goal(rl_task, episode):
+    """Print spawn and goal positions for env 0."""
+    spawn = rl_task.obs_dict["robot_position"][0].cpu().numpy()
+    goal  = rl_task.target_position[0].cpu().numpy()
+    logger.warning(
+        "Episode %d | Spawn: [%.2f, %.2f, %.2f]  Goal: [%.2f, %.2f, %.2f]  "
+        "Dist: %.2f m",
+        episode,
+        spawn[0], spawn[1], spawn[2],
+        goal[0],  goal[1],  goal[2],
+        float(np.linalg.norm(goal - spawn)),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -441,14 +487,16 @@ def run_evaluation(eval_args):
     # 5. Set up the OpenCV camera window
     build_display()
 
-    # 6. Trajectory ring buffer
-    traj_buf = deque(maxlen=eval_args.traj_len)
+    # 6. Trajectory ring buffer (positions sampled at vis_every cadence)
+    traj_buf = deque(maxlen=200)
 
     # 7. Episode stats
     stats = EpisodeStats()
 
     # 8. Initial environment reset
     rl_task.reset()
+    _regenerate_goal_with_height_tolerance(rl_task, max_dz=0.5)
+    _log_spawn_goal(rl_task, episode=0)
     command_actions = torch.zeros(
         (rl_task.num_envs, rl_task.task_config.action_space_dim),
         device=MatterportDCEEvalTaskConfig.device,
@@ -470,22 +518,19 @@ def run_evaluation(eval_args):
             )
             command_actions[:] = action
 
-        # Track trajectory for env 0
-        robot_pos = rl_task.obs_dict["robot_position"][0].cpu().numpy().copy()
-        traj_buf.append(robot_pos)
-
-        # Draw goal marker + trajectory in the Isaac Gym viewer every step
-        goal_np = rl_task.target_position[0].cpu().numpy()
-        draw_debug(rl_task, list(traj_buf), goal_np)
-
-        # Update camera feed every vis_every steps
+        # Draw goal + trail and update camera feed at vis_every cadence
         if step_i % eval_args.vis_every == 0:
+            goal_np   = rl_task.target_position[0].cpu().numpy()
+            robot_pos = rl_task.obs_dict["robot_position"][0].cpu().numpy()
+            traj_buf.append(robot_pos.copy())
+            draw_debug(rl_task, goal_np, list(traj_buf))
             update_display(rl_task.obs_dict)
 
         # Handle episode resets
-        any_done = torch.any(termination + truncation)
+        done = termination | truncation
+        any_done = done.any()
         if any_done:
-            reset_ids = (termination + truncation).nonzero(as_tuple=True)
+            reset_ids = done.nonzero(as_tuple=True)
             stats.record(termination, truncation, infos)
 
             if termination[0]:
@@ -503,6 +548,8 @@ def run_evaluation(eval_args):
 
             nn_model.reset(reset_ids)
             traj_buf.clear()
+            _regenerate_goal_with_height_tolerance(rl_task, max_dz=0.5)
+            _log_spawn_goal(rl_task, episode=stats.episodes)
 
             if stats.episodes % 10 == 0:
                 stats.log()
