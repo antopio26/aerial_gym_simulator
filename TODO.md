@@ -3,6 +3,8 @@
     - [ ] Check for big memory consumption issue
     - [ ] Check for uint8 to float conversion in texture query
 - [x] Fix camera range limits
-- [ ] Fix mesh collision logic
+- [ ] Fix mesh collision logic !!!
 - [x] Look at navmesh decoding from Habitat
 - [x] Use decoded navmesh to generate spawnpoints and object placements
+
+- [ ] 

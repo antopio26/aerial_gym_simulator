@@ -99,6 +99,7 @@ RUN conda run -n aerialgym pip3 install --no-deps -e .
 # else can silently re-upgrade it.
 RUN conda run -n aerialgym pip3 install "numpy==1.23.5"
 RUN conda run -n aerialgym pip3 install "matplotlib"
+RUN conda run -n aerialgym conda install -y -c conda-forge glib -y
 
 # Setup the bashrc to activate the conda environment
 RUN echo "source /opt/conda/etc/profile.d/conda.sh && conda activate aerialgym" >> ~/.bashrc

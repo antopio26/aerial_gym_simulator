@@ -5,8 +5,9 @@ class ShadedRGBDCameraConfig(BaseDepthCameraConfig):
     # Distinct sensor type so existing camera paths remain untouched.
     sensor_type = "shaded_rgbd_camera"
 
-    height = 270
-    width = 480
+    # Match base depth camera geometry as closely as possible.
+    height = 240
+    width = 320
 
     # Shaded RGBD currently returns depth in depth_range_pixels and color in rgb_pixels.
     segmentation_camera = False
@@ -14,7 +15,7 @@ class ShadedRGBDCameraConfig(BaseDepthCameraConfig):
     calculate_depth = True
 
     # Simple directional lighting controls for the first implementation.
-    enable_lighting = True
+    enable_lighting = False
     ambient_strength = 0.2
     light_direction = [0.3, 0.4, 0.85]
 
