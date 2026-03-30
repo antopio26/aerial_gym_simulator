@@ -2,6 +2,7 @@ from aerial_gym.task.base_task import BaseTask
 from aerial_gym.sim.sim_builder import SimBuilder
 import torch
 import numpy as np
+import torch.nn.functional as F
 
 from aerial_gym.utils.math import *
 
@@ -164,10 +165,15 @@ class NavigationTask(BaseTask):
         self.sim_env.delete_env()
 
     def reset(self):
-        self.reset_idx(torch.arange(self.sim_env.num_envs))
+        self.reset_idx(torch.arange(self.sim_env.num_envs, device=self.device, dtype=torch.long))
         return self.get_return_tuple()
 
     def reset_idx(self, env_ids):
+        if not torch.is_tensor(env_ids):
+            env_ids = torch.as_tensor(env_ids, device=self.device, dtype=torch.long)
+        else:
+            env_ids = env_ids.to(device=self.device, dtype=torch.long)
+
         if len(env_ids) == 0:
             self.infos = {}
             return
@@ -209,6 +215,8 @@ class NavigationTask(BaseTask):
         if self.goal_navmesh_sampler is None:
             return None
 
+        env_ids = env_ids.to(device=self.device, dtype=torch.long)
+
         nav_cfg = self.task_config.navmesh_sampling
         goal_h = tuple(getattr(nav_cfg, "goal_height_offset_range", [0.0, 0.0]))
         goals = self.goal_navmesh_sampler.sample_world_points(
@@ -223,15 +231,28 @@ class NavigationTask(BaseTask):
         max_sep = float(max_sep_cfg) if max_sep_cfg is not None else None
         max_attempts = int(getattr(nav_cfg, "max_pair_sampling_attempts", 4))
 
+        planar_axes = (0, 1)
+        navmesh_obj = getattr(self.goal_navmesh_sampler, "navmesh", None)
+        if navmesh_obj is not None:
+            navmesh_planar_axes = getattr(navmesh_obj, "planar_axes", None)
+            if navmesh_planar_axes is not None and len(navmesh_planar_axes) == 2:
+                planar_axes = (int(navmesh_planar_axes[0]), int(navmesh_planar_axes[1]))
+
         if min_sep > 0.0 or max_sep is not None:
             robot_pos = self.obs_dict["robot_position"][env_ids]
             for _ in range(max_attempts):
-                planar_dist = torch.norm(goals[:, [0, 2]] - robot_pos[:, [0, 2]], dim=1)
+                planar_dist = torch.norm(
+                    goals[:, [planar_axes[0], planar_axes[1]]]
+                    - robot_pos[:, [planar_axes[0], planar_axes[1]]],
+                    dim=1,
+                )
                 invalid = planar_dist < min_sep
                 if max_sep is not None:
                     invalid = torch.logical_or(invalid, planar_dist > max_sep)
                 if not torch.any(invalid):
                     break
+                if invalid.device != env_ids.device:
+                    invalid = invalid.to(env_ids.device)
                 invalid_env_ids = env_ids[invalid]
                 resampled = self.goal_navmesh_sampler.sample_world_points(
                     env_ids=invalid_env_ids,
@@ -343,7 +364,13 @@ class NavigationTask(BaseTask):
 
     def process_image_observation(self):
         image_obs = self.obs_dict["depth_range_pixels"].squeeze(1)
+
         if self.task_config.vae_config.use_vae:
+            # The frozen VAE expects depth at 135x240.
+            # Use adaptive min-pooling to preserve near-obstacle structure while resizing.
+            if image_obs.shape[-2:] != (135, 240):
+                image_obs = -F.adaptive_max_pool2d(-image_obs.unsqueeze(1), (135, 240)).squeeze(1)
+
             encode_every_n_steps = max(
                 1, int(getattr(self.task_config.vae_config, "encode_every_n_steps", 1))
             )

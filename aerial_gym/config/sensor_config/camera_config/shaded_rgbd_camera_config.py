@@ -9,6 +9,8 @@ class ShadedRGBDCameraConfig(BaseDepthCameraConfig):
     height = 240
     width = 320
 
+    max_range = 10.0
+
     # Shaded RGBD currently returns depth in depth_range_pixels and color in rgb_pixels.
     segmentation_camera = False
     return_pointcloud = False

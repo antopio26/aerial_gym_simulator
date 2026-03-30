@@ -18,10 +18,11 @@ class MatterportGLBEnvCfg:
 
         use_warp = True
 
-        lower_bound_min = [-6.0, -5.0, 0.4]
-        lower_bound_max = [-3.0, -3.0, 1.2]
-        upper_bound_min = [6.0, 3.5, 2.0]
-        upper_bound_max = [8.0, 4.5, 3.0]
+        # By default, infer env bounds directly from the static scene mesh AABB.
+        # To override manually, define lower_bound_min/lower_bound_max and
+        # upper_bound_min/upper_bound_max explicitly in this class.
+        auto_env_bounds_from_static_scene = True
+        auto_env_bounds_padding = [0.0, 0.0, 0.0]
 
     class env_config:
         include_asset_type = {}
@@ -58,5 +59,5 @@ class MatterportGLBEnvCfg:
         spawn_height_offset_range = [0.15, 0.40]
         edge_padding = 0.30
         enforce_env_bounds = True
-        max_bound_resample_rounds = 5
+        max_bound_resample_rounds = 40
         zero_velocity_on_spawn = True

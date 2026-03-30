@@ -84,12 +84,14 @@ class MatterportDCEEvalTaskConfig(_BaseCfg):
 
     class navmesh_sampling:
         enable = True
-        spawn_height_offset_range = [0.3, 0.80]   # above floor, matches goal_height_offset_range
-        goal_height_offset_range = [0.3, 0.80]    # matches spawn_height_offset_range
-        goal_min_separation = 2.0                  
-        goal_max_separation = 4.0
-        max_pair_sampling_attempts = 6            
-        
+
+        edge_padding = 1.5
+        spawn_height_offset_range = [0.8, 1.8]   # above floor, matches goal_height_offset_range
+        goal_height_offset_range = [0.8, 1.8]      # matches spawn_height_offset_range
+        goal_min_separation = 2.0                  # no separation constraint (same as spawn)
+        goal_max_separation = 10.0
+        max_pair_sampling_attempts = 30             # retry invalid goal samples up to this many times
+
     class vae_config(_BaseCfg.vae_config):
         # Inherited: use_vae=True, latent_dims=64, image_res=(270,480)
         # The shaded RGBD camera now follows base depth camera resolution (135,240).
@@ -204,6 +206,12 @@ def parse_eval_args():
         default=1,
         help="Encode VAE latent every N task steps (reuse previous latent in between).",
     )
+    p.add_argument(
+        "--max_goal_spawn_dz",
+        type=float,
+        default=0.5,
+        help="Maximum allowed |goal_z - spawn_z| during goal regeneration.",
+    )
     known, unknown = p.parse_known_args()
     # Keep only Sample Factory args for the downstream parser.
     sys.argv = [sys.argv[0]] + unknown
@@ -282,7 +290,29 @@ def setup_navmesh(eval_args):
     MatterportGLBEnvCfg.navmesh_sampling.enable = True
     MatterportGLBEnvCfg.navmesh_sampling.navmesh_file = None
     MatterportDCEEvalTaskConfig.navmesh_sampling.enable = True
+    # Keep a single source of truth in eval task config and forward spawn range to env sampler.
+    # Spawn is sampled by env-level navmesh sampler, while goals are sampled by task-level logic.
+    MatterportGLBEnvCfg.navmesh_sampling.spawn_height_offset_range = list(
+        MatterportDCEEvalTaskConfig.navmesh_sampling.spawn_height_offset_range
+    )
     logger.warning("Navmesh sampling enabled.")
+    logger.warning(
+        "Navmesh height ranges | spawn(env)=%s goal(task)=%s",
+        MatterportGLBEnvCfg.navmesh_sampling.spawn_height_offset_range,
+        MatterportDCEEvalTaskConfig.navmesh_sampling.goal_height_offset_range,
+    )
+    spawn_h = MatterportGLBEnvCfg.navmesh_sampling.spawn_height_offset_range
+    goal_h = MatterportDCEEvalTaskConfig.navmesh_sampling.goal_height_offset_range
+    dz = float(eval_args.max_goal_spawn_dz)
+    compatible = (spawn_h[0] - dz <= goal_h[1]) and (goal_h[0] - dz <= spawn_h[1])
+    if not compatible:
+        logger.warning(
+            "Height ranges are inconsistent with max_goal_spawn_dz=%.2f. "
+            "Spawn range=%s Goal range=%s. Goal regeneration may fail frequently.",
+            dz,
+            spawn_h,
+            goal_h,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -580,7 +610,10 @@ def run_evaluation(eval_args):
 
     # 8. Initial environment reset
     rl_task.reset()
-    _regenerate_goal_with_height_tolerance(rl_task, max_dz=0.5)
+    _regenerate_goal_with_height_tolerance(
+        rl_task,
+        max_dz=float(eval_args.max_goal_spawn_dz),
+    )
     _log_spawn_goal(rl_task, episode=0)
     command_actions = torch.zeros(
         (rl_task.num_envs, rl_task.task_config.action_space_dim),
@@ -618,6 +651,7 @@ def run_evaluation(eval_args):
         any_done = done.any()
         if any_done:
             reset_ids = done.nonzero(as_tuple=True)
+            reset_env_ids = done.nonzero(as_tuple=False).squeeze(-1)
             stats.record(termination, truncation, infos)
 
             if termination[0]:
@@ -634,8 +668,30 @@ def run_evaluation(eval_args):
                 )
 
             nn_model.reset(reset_ids)
+
+            # When policy inference is throttled (policy_every > 1), force a fresh
+            # first action for just-reset environments. Otherwise they can carry a stale
+            # command from the previous episode for up to N-1 steps.
+            if policy_every > 1 and reset_env_ids.numel() > 0:
+                rnn_before = nn_model.rnn_states.clone()
+                obs["obs"] = obs["observations"]
+                immediate_action = nn_model.get_action(obs)
+                immediate_action = torch.as_tensor(
+                    immediate_action, device=command_actions.device
+                ).expand(rl_task.num_envs, -1)
+                command_actions[reset_env_ids] = immediate_action[reset_env_ids]
+
+                keep_mask = torch.ones(
+                    rl_task.num_envs, dtype=torch.bool, device=command_actions.device
+                )
+                keep_mask[reset_env_ids] = False
+                nn_model.rnn_states[keep_mask] = rnn_before[keep_mask]
+
             traj_buf.clear()
-            _regenerate_goal_with_height_tolerance(rl_task, max_dz=0.5)
+            _regenerate_goal_with_height_tolerance(
+                rl_task,
+                max_dz=float(eval_args.max_goal_spawn_dz),
+            )
             _log_spawn_goal(rl_task, episode=stats.episodes)
 
             if stats.episodes % 10 == 0:

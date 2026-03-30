@@ -6,6 +6,7 @@ from isaacgym import gymutil
 from aerial_gym.env_manager.base_env_manager import BaseManager
 from aerial_gym.env_manager.asset_manager import AssetManager
 from aerial_gym.env_manager.IGE_viewer_control import IGEViewerControl
+from aerial_gym import AERIAL_GYM_DIRECTORY
 import torch
 
 import os
@@ -43,18 +44,23 @@ class IsaacGymEnv(BaseManager):
         self.gym, self.sim = self.create_sim()
         logger.info("Created Isaac Gym Environment")
 
+        # Resolve env bounds either from explicit config or automatically from static scene bounds.
+        lower_bound_min, lower_bound_max, upper_bound_min, upper_bound_max = (
+            self._resolve_env_bound_ranges()
+        )
+
         # env bounds
         self.env_lower_bound_min = torch.tensor(
-            self.cfg.env.lower_bound_min, device=self.device, requires_grad=False
+            lower_bound_min, device=self.device, requires_grad=False
         ).expand(self.cfg.env.num_envs, -1)
         self.env_lower_bound_max = torch.tensor(
-            self.cfg.env.lower_bound_max, device=self.device, requires_grad=False
+            lower_bound_max, device=self.device, requires_grad=False
         ).expand(self.cfg.env.num_envs, -1)
         self.env_upper_bound_min = torch.tensor(
-            self.cfg.env.upper_bound_min, device=self.device, requires_grad=False
+            upper_bound_min, device=self.device, requires_grad=False
         ).expand(self.cfg.env.num_envs, -1)
         self.env_upper_bound_max = torch.tensor(
-            self.cfg.env.upper_bound_max, device=self.device, requires_grad=False
+            upper_bound_max, device=self.device, requires_grad=False
         ).expand(self.cfg.env.num_envs, -1)
 
         self.env_lower_bound = torch_rand_float_tensor(
@@ -66,6 +72,115 @@ class IsaacGymEnv(BaseManager):
 
         self.viewer = None
         self.graphics_are_stepped = True
+
+    def _resolve_abs_scene_path(self, path):
+        if os.path.isabs(path):
+            return path
+        repo_candidate = os.path.join(AERIAL_GYM_DIRECTORY, path)
+        if os.path.exists(repo_candidate):
+            return repo_candidate
+        return os.path.abspath(path)
+
+    def _has_manual_env_bounds(self):
+        keys = ["lower_bound_min", "lower_bound_max", "upper_bound_min", "upper_bound_max"]
+        for key in keys:
+            if not hasattr(self.cfg.env, key):
+                return False
+            if getattr(self.cfg.env, key) is None:
+                return False
+        return True
+
+    def _load_static_scene_aabb(self):
+        static_scene_cfg = getattr(self.cfg, "static_scene", None)
+        if static_scene_cfg is None or not getattr(static_scene_cfg, "enable", False):
+            return None
+
+        scene_path = getattr(static_scene_cfg, "collision_file", None) or getattr(
+            static_scene_cfg, "file", None
+        )
+        if scene_path is None:
+            return None
+
+        scene_abs = self._resolve_abs_scene_path(scene_path)
+        if not os.path.exists(scene_abs):
+            logger.warning("Static scene file for auto env bounds not found: %s", scene_abs)
+            return None
+
+        try:
+            import trimesh as tm
+
+            loaded = tm.load(scene_abs, force="scene")
+            if isinstance(loaded, tm.Trimesh):
+                meshes = [loaded]
+            else:
+                meshes = [m for m in loaded.dump(concatenate=False) if isinstance(m, tm.Trimesh)]
+
+            if not meshes:
+                logger.warning("No mesh geometry found in static scene for auto env bounds: %s", scene_abs)
+                return None
+
+            scale = float(getattr(static_scene_cfg, "scale", 1.0))
+            translation = np.asarray(
+                getattr(static_scene_cfg, "translation", [0.0, 0.0, 0.0]), dtype=np.float32
+            )
+
+            mins = []
+            maxs = []
+            for mesh in meshes:
+                verts = np.asarray(mesh.vertices, dtype=np.float32)
+                verts = verts * scale + translation
+                mins.append(np.min(verts, axis=0))
+                maxs.append(np.max(verts, axis=0))
+
+            return np.min(np.asarray(mins), axis=0), np.max(np.asarray(maxs), axis=0)
+        except Exception as exc:
+            logger.warning("Failed to infer env bounds from static scene: %s", exc)
+            return None
+
+    def _resolve_env_bound_ranges(self):
+        # Manual config takes precedence and acts as explicit override.
+        if self._has_manual_env_bounds():
+            return (
+                self.cfg.env.lower_bound_min,
+                self.cfg.env.lower_bound_max,
+                self.cfg.env.upper_bound_min,
+                self.cfg.env.upper_bound_max,
+            )
+
+        auto_enabled = bool(getattr(self.cfg.env, "auto_env_bounds_from_static_scene", True))
+        if not auto_enabled:
+            raise ValueError(
+                "Env bounds are not configured. Set lower/upper bounds explicitly or "
+                "enable auto_env_bounds_from_static_scene."
+            )
+
+        scene_bounds = self._load_static_scene_aabb()
+        if scene_bounds is None:
+            raise ValueError(
+                "Could not infer env bounds from static scene. Provide explicit bounds in env config."
+            )
+
+        scene_min, scene_max = scene_bounds
+        pad_cfg = getattr(self.cfg.env, "auto_env_bounds_padding", [0.0, 0.0, 0.0])
+        if isinstance(pad_cfg, (int, float)):
+            pad = np.array([float(pad_cfg), float(pad_cfg), float(pad_cfg)], dtype=np.float32)
+        else:
+            pad = np.asarray(pad_cfg, dtype=np.float32)
+            if pad.shape != (3,):
+                raise ValueError("auto_env_bounds_padding must be a scalar or 3-element list")
+
+        lower = (scene_min - pad).astype(np.float32).tolist()
+        upper = (scene_max + pad).astype(np.float32).tolist()
+
+        logger.warning(
+            "Auto env bounds from static scene | lower=%s upper=%s pad=%s",
+            [round(float(v), 3) for v in lower],
+            [round(float(v), 3) for v in upper],
+            [round(float(v), 3) for v in pad.tolist()],
+        )
+
+        # Keep min/max equal so reset sampling uses deterministic full-scene AABB by default.
+        return lower, lower, upper, upper
 
     def create_sim(self):
         """

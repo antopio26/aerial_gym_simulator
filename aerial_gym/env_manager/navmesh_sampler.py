@@ -127,18 +127,26 @@ class NavMeshSpawnSampler:
         candidate_count = 8 # Oversampling is handled efficiently inside sample_points_with_padding now
         selected_points_world = []
         fallback_count = 0
+        fallback_debug = []
 
         for i, env_id in enumerate(env_ids):
             env_origin = self.env_origins[env_id]
             selected = None
+            rounds_attempted = 0
+            total_candidates = 0
+            total_kept = 0
+            last_in_world_bounds = 0
+            last_in_local_bounds = 0
 
             for _ in range(max_bound_resample_rounds):
+                rounds_attempted += 1
                 points_local = self.navmesh.sample_points_with_padding(
                     count=candidate_count,
                     height_offset=tuple(height_offset_range),
                     edge_padding=edge_padding,
                 ).to(self.device)
                 points_local_scene = self._apply_scene_transform(points_local)
+                total_candidates += int(points_local_scene.shape[0])
 
                 if enforce_bounds and bounds_min_env is not None and bounds_max_env is not None:
                     env_bmin = bounds_min_env[i]
@@ -155,10 +163,15 @@ class NavMeshSpawnSampler:
                         points_local_scene <= env_bmax.unsqueeze(0),
                     ).all(dim=1)
 
+                    last_in_world_bounds = int(in_world_bounds.sum().item())
+                    last_in_local_bounds = int(in_local_bounds.sum().item())
+
                     in_bounds = torch.logical_or(in_world_bounds, in_local_bounds)
                     kept_local = points_local_scene[in_bounds]
                 else:
                     kept_local = points_local_scene
+
+                total_kept += int(kept_local.shape[0])
 
                 if kept_local.shape[0] > 0:
                     pick = torch.randint(0, kept_local.shape[0], (1,), device=self.device)
@@ -167,6 +180,39 @@ class NavMeshSpawnSampler:
 
             if selected is None:
                 fallback_count += 1
+                env_id_int = int(env_id.item())
+                if enforce_bounds and bounds_min_env is not None and bounds_max_env is not None:
+                    bmin = [round(float(v), 3) for v in bounds_min_env[i].tolist()]
+                    bmax = [round(float(v), 3) for v in bounds_max_env[i].tolist()]
+                    fallback_debug.append(
+                        "env={} rounds={}/{} candidates={} kept={} last_world_kept={} "
+                        "last_local_kept={} edge_padding={:.3f} bounds_min={} bounds_max={}".format(
+                            env_id_int,
+                            rounds_attempted,
+                            max_bound_resample_rounds,
+                            total_candidates,
+                            total_kept,
+                            last_in_world_bounds,
+                            last_in_local_bounds,
+                            edge_padding,
+                            bmin,
+                            bmax,
+                        )
+                    )
+                else:
+                    fallback_debug.append(
+                        "env={} rounds={}/{} candidates={} kept={} edge_padding={:.3f} "
+                        "enforce_bounds={} (bounds tensors unavailable or disabled)".format(
+                            env_id_int,
+                            rounds_attempted,
+                            max_bound_resample_rounds,
+                            total_candidates,
+                            total_kept,
+                            edge_padding,
+                            enforce_bounds,
+                        )
+                    )
+
                 points_local = self.navmesh.sample_points_with_padding(
                     count=1,
                     height_offset=tuple(height_offset_range),
@@ -178,10 +224,13 @@ class NavMeshSpawnSampler:
 
         if fallback_count > 0:
             self.logger.warning(
-                "Navmesh spawn sampling fallback used for %d/%d envs.",
+                "Navmesh spawn sampling fallback used for %d/%d envs. "
+                "Reason: no in-bounds candidate found after %d rounds per env.",
                 fallback_count,
                 len(env_ids),
+                max_bound_resample_rounds,
             )
+            self.logger.warning("Navmesh fallback details: %s", " | ".join(fallback_debug))
 
         return torch.cat(selected_points_world, dim=0)
 
