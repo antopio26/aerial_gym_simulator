@@ -106,6 +106,8 @@ class WarpEnv(BaseManager):
         if self.static_scene is not None and self.global_vertex_counter > 0:
             raise NotImplementedError("Combining static GLB scenes with dynamic warp-managed assets is not implemented yet.")
 
+        # Static scene path: populates CONST_WARP_TEXTURE_* keys for the sensor.
+        # Dynamic asset path (below): populates CONST_GLOBAL_VERTEX_COLOR_* keys instead.
         if self.static_scene is not None:
             texture_image = self.static_scene.texture_image
             if texture_image is not None:
@@ -132,12 +134,6 @@ class WarpEnv(BaseManager):
                 dtype=torch.float32,
                 requires_grad=False,
             ).contiguous()
-            self.global_tensor_dict["CONST_WARP_VERTEX_COLOR_TENSOR"] = torch.tensor(
-                self.static_scene.vertex_colors,
-                device=self.device,
-                dtype=torch.float32,
-                requires_grad=False,
-            )
             self.global_tensor_dict["CONST_WARP_TEXTURE_BASE_COLOR_FACTOR"] = torch.tensor(
                 self.static_scene.base_color_factor,
                 device=self.device,
@@ -199,7 +195,6 @@ class WarpEnv(BaseManager):
             self.global_tensor_dict["CONST_WARP_TEXTURE_IMAGE_TENSOR"] = None
             self.global_tensor_dict["CONST_WARP_TEXTURE_UV_TENSOR"] = None
             self.global_tensor_dict["CONST_WARP_TEXTURE_VERTEX_NORMAL_TENSOR"] = None
-            self.global_tensor_dict["CONST_WARP_VERTEX_COLOR_TENSOR"] = None
             self.global_tensor_dict["CONST_WARP_TEXTURE_BASE_COLOR_FACTOR"] = None
             return 1
 

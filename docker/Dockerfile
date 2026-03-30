@@ -2,8 +2,12 @@ FROM ubuntu:20.04
 
 SHELL ["/bin/bash", "-lc"]
 
+ARG DEBIAN_FRONTEND=noninteractive
+ENV TZ=Etc/UTC
+
 # Install python3.8, conda and pip3
 RUN apt-get update && apt-get install -y \
+    tzdata \
     wget \
     bzip2 \
     ca-certificates \
@@ -18,6 +22,8 @@ RUN apt-get update && apt-get install -y \
     libgles2-mesa \
     # Runtime libs used by Pillow/matplotlib in camera and plotting examples
     libtiff5 \
+    # GLib runtime — provides libgthread-2.0.so.0 required by opencv-python
+    libglib2.0-0 \
     # X11 client lib so the viewer can connect to a forwarded display
     libx11-6 \
     xauth \

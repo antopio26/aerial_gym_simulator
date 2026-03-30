@@ -10,9 +10,14 @@ from datetime import datetime
 from typing import Any, Dict
 
 import numpy as np
-from PIL import Image
 import yaml
 
+from aerial_gym.benchmark.benchmark_utils import (
+    collect_grid_frame,
+    compute_benchmark_metrics,
+    deep_update,
+    maybe_save_case_gif,
+)
 from aerial_gym.benchmark.matterport_spawn_helpers import (
     apply_navmesh_config,
     apply_spawn_region,
@@ -88,15 +93,6 @@ def _default_config() -> Dict[str, Any]:
     }
 
 
-def _deep_update(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
-    for key, value in override.items():
-        if isinstance(value, dict) and isinstance(base.get(key), dict):
-            _deep_update(base[key], value)
-        else:
-            base[key] = value
-    return base
-
-
 def _load_config(config_path: str) -> Dict[str, Any]:
     with open(config_path, "r", encoding="utf-8") as f:
         loaded = yaml.safe_load(f) or {}
@@ -104,7 +100,7 @@ def _load_config(config_path: str) -> Dict[str, Any]:
         raise ValueError(f"Config root must be a mapping in {config_path}")
 
     cfg = _default_config()
-    _deep_update(cfg, loaded)
+    deep_update(cfg, loaded)
 
     if not isinstance(cfg.get("env_counts"), list) or len(cfg["env_counts"]) == 0:
         raise ValueError("config.env_counts must be a non-empty list of integers")
@@ -124,60 +120,6 @@ def _configure_camera_classes(width: int, height: int, max_range: float, enable_
     ShadedRGBDCameraConfig.max_range = max_range
     ShadedRGBDCameraConfig.enable_lighting = enable_lighting
     ShadedRGBDCameraConfig.debug_uv_checker = False
-
-
-def _tile_images_grid(images_u8: np.ndarray) -> np.ndarray:
-    n, h, w, c = images_u8.shape
-    cols = int(np.ceil(np.sqrt(n)))
-    rows = int(np.ceil(n / cols))
-    grid = np.zeros((rows * h, cols * w, c), dtype=np.uint8)
-    for i in range(n):
-        r = i // cols
-        col = i % cols
-        grid[r * h : (r + 1) * h, col * w : (col + 1) * w, :] = images_u8[i]
-    return grid
-
-
-def _collect_grid_frame(env_manager) -> Image.Image:
-    rgb_tensor = env_manager.global_tensor_dict.get("rgb_pixels", None)
-    if rgb_tensor is not None:
-        rgb = rgb_tensor[:, 0].detach().cpu().numpy()
-        rgb_u8 = np.clip(rgb * 255.0, 0.0, 255.0).astype(np.uint8)
-        return Image.fromarray(_tile_images_grid(rgb_u8))
-
-    depth_tensor = env_manager.global_tensor_dict.get("depth_range_pixels", None)
-    if depth_tensor is not None:
-        depth = depth_tensor[:, 0].detach().cpu().numpy()
-        finite = np.isfinite(depth)
-        if np.any(finite):
-            d_min = float(np.min(depth[finite]))
-            d_max = float(np.max(depth[finite]))
-            if d_max - d_min > 1.0e-6:
-                depth_norm = (depth - d_min) / (d_max - d_min)
-            else:
-                depth_norm = np.zeros_like(depth, dtype=np.float32)
-        else:
-            depth_norm = np.zeros_like(depth, dtype=np.float32)
-        depth_u8 = np.clip(depth_norm * 255.0, 0.0, 255.0).astype(np.uint8)
-        return Image.fromarray(_tile_images_grid(np.repeat(depth_u8[..., None], 3, axis=-1)))
-
-    raise RuntimeError("Neither rgb_pixels nor depth_range_pixels is available for GIF capture.")
-
-
-def _maybe_save_case_gif(frames, robot_name: str, num_envs: int, gif_duration_ms: int):
-    if len(frames) == 0:
-        return None
-    out_dir = os.path.join(os.path.dirname(__file__), "stored_data", "benchmark_gifs")
-    os.makedirs(out_dir, exist_ok=True)
-    gif_path = os.path.join(out_dir, f"benchmark_{robot_name}_{num_envs}envs.gif")
-    frames[0].save(
-        gif_path,
-        save_all=True,
-        append_images=frames[1:],
-        duration=gif_duration_ms,
-        loop=0,
-    )
-    return gif_path
 
 
 def _run_case(
@@ -256,7 +198,7 @@ def _run_case(
             return
         if total_steps % gif_every != 0:
             return
-        frames.append(_collect_grid_frame(env_manager))
+        frames.append(collect_grid_frame(env_manager))
 
     with torch.no_grad():
         for _ in range(warmup_steps):
@@ -267,7 +209,6 @@ def _run_case(
                 render_count += 1
             reset_env_ids = env_manager.reset_terminated_and_truncated_envs()
             refresh_targets(reset_env_ids)
-            # Ensure reset envs do not execute one stale step toward a pre-reset target.
             apply_targets_to_actions()
             maybe_capture_frame()
             total_steps += 1
@@ -289,24 +230,23 @@ def _run_case(
         elapsed = time.time() - start
 
     sim_dt = float(env_manager.sim_config.sim.dt)
-    fps = (bench_steps * num_envs) / max(elapsed, 1.0e-9)
-    rtf = (bench_steps * num_envs * sim_dt) / max(elapsed, 1.0e-9)
-    fps_per_env = fps / max(num_envs, 1)
-    rtf_per_env = rtf / max(num_envs, 1)
-    rendered_fps = (render_count * num_envs) / max(elapsed, 1.0e-9)
-    rendered_fps_per_env = rendered_fps / max(num_envs, 1)
-    render_dt = sim_dt * render_every
-    rendered_rtf = (render_count * num_envs * render_dt) / max(elapsed, 1.0e-9)
-    rendered_rtf_per_env = rendered_rtf / max(num_envs, 1)
+    metrics = compute_benchmark_metrics(
+        bench_steps=bench_steps,
+        num_envs=num_envs,
+        elapsed=elapsed,
+        sim_dt=sim_dt,
+        render_count=render_count,
+        render_every=render_every,
+    )
 
     del env_manager
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    gif_path = _maybe_save_case_gif(
+    gif_path = maybe_save_case_gif(
         frames=frames,
-        robot_name=robot_name,
+        label=robot_name,
         num_envs=num_envs,
         gif_duration_ms=gif_duration_ms,
     )
@@ -316,17 +256,10 @@ def _run_case(
         "controller_name": controller_name,
         "num_envs": num_envs,
         "elapsed_s": elapsed,
-        "fps": fps,
-        "fps_per_env": fps_per_env,
-        "real_time_speedup": rtf,
-        "real_time_speedup_per_env": rtf_per_env,
         "render_count": render_count,
         "render_every": render_every,
-        "rendered_fps": rendered_fps,
-        "rendered_fps_per_env": rendered_fps_per_env,
-        "rendered_real_time_speedup": rendered_rtf,
-        "rendered_real_time_speedup_per_env": rendered_rtf_per_env,
         "gif_path": gif_path,
+        **metrics,
     }
 
 

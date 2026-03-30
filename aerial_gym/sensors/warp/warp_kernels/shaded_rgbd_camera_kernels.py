@@ -20,8 +20,6 @@ class ShadedRGBCameraWarpKernels:
         base_color_factor: wp.vec3,
         enable_lighting: int,
         debug_uv_checker: int,
-        uv_bary_mode: int,
-        uv_transform_mode: int,
         ambient_strength: float,
         light_dir_world: wp.vec3,
         c_x: int,
@@ -58,40 +56,7 @@ class ShadedRGBCameraWarpKernels:
             n1 = vertex_normals[idx1]
             n2 = vertex_normals[idx2]
             w = 1.0 - u - v
-            # Try all 6 permutations of barycentric association to triangle vertices.
-            # This helps diagnose conventions mismatches between mesh_query_ray barycentrics
-            # and mesh index ordering.
-            # if uv_bary_mode == 1:
-            #     uv = w * uv0 + v * uv1 + u * uv2
-            # elif uv_bary_mode == 2:
-            #     uv = u * uv0 + w * uv1 + v * uv2
-            # elif uv_bary_mode == 3:
-            #     # Validated fix for Matterport GLB path: Warp hit barycentrics map as
-            #     # (u, v, w) to (uv0, uv1, uv2), not the canonical (w, u, v).
-            #     uv = u * uv0 + v * uv1 + w * uv2
-            # elif uv_bary_mode == 4:
-            #     uv = v * uv0 + w * uv1 + u * uv2
-            # elif uv_bary_mode == 5:
-            #     uv = v * uv0 + u * uv1 + w * uv2
-            # else:
-            #     uv = w * uv0 + u * uv1 + v * uv2
-
-            # # Apply one of 8 UV orientation transforms (D4 symmetries of the unit square).
-            # if uv_transform_mode == 1:
-            #     uv = wp.vec2(1.0 - uv[0], uv[1])
-            # elif uv_transform_mode == 2:
-            #     uv = wp.vec2(uv[0], 1.0 - uv[1])
-            # elif uv_transform_mode == 3:
-            #     uv = wp.vec2(1.0 - uv[0], 1.0 - uv[1])
-            # elif uv_transform_mode == 4:
-            #     uv = wp.vec2(uv[1], uv[0])
-            # elif uv_transform_mode == 5:
-            #     uv = wp.vec2(1.0 - uv[1], uv[0])
-            # elif uv_transform_mode == 6:
-            #     uv = wp.vec2(uv[1], 1.0 - uv[0])
-            # elif uv_transform_mode == 7:
-            #     uv = wp.vec2(1.0 - uv[1], 1.0 - uv[0])
-
+            # Warp barycentrics (u, v, w) map to (uv0, uv1, uv2) for Matterport GLB.
             uv = u * uv0 + v * uv1 + w * uv2
             shading_normal = wp.normalize(w * n0 + u * n1 + v * n2)
 
@@ -104,7 +69,8 @@ class ShadedRGBCameraWarpKernels:
             y1 = wp.min(y0 + 1, texture_height - 1)
             tx = fu - float(x0)
             ty = fv - float(y0)
-            # uint8 → float32 conversion inline (avoids storing a 4× larger float atlas)
+            # uint8 -> float32 inline: 0.003921569 = 1.0 / 255.0
+            # Avoids storing a 4x larger float atlas on the GPU.
             c00 = wp.vec3(float(texture_image[y0, x0, 0]) * 0.003921569,
                           float(texture_image[y0, x0, 1]) * 0.003921569,
                           float(texture_image[y0, x0, 2]) * 0.003921569)

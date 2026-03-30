@@ -2,6 +2,11 @@ import warp as wp
 import math
 from aerial_gym.sensors.warp.warp_kernels.shaded_rgbd_camera_kernels import ShadedRGBCameraWarpKernels
 
+from aerial_gym.utils.logging import CustomLogger, logging
+
+logger = CustomLogger("WarpShadedRGBCam")
+logger.setLoggerLevel(logging.INFO)
+
 
 class WarpShadedRGBCam:
     def __init__(
@@ -29,12 +34,10 @@ class WarpShadedRGBCam:
         self.height = self.cfg.height
         self.horizontal_fov = math.radians(self.cfg.horizontal_fov_deg)
         self.far_plane = self.cfg.max_range
-        self.ambient_strength = float(getattr(self.cfg, "ambient_strength", 0.2))
-        self.light_dir_world = wp.vec3(*getattr(self.cfg, "light_direction", [0.0, 0.0, 1.0]))
-        self.enable_lighting = int(getattr(self.cfg, "enable_lighting", True))
-        self.debug_uv_checker = int(getattr(self.cfg, "debug_uv_checker", False))
-        self.uv_bary_mode = int(getattr(self.cfg, "uv_bary_mode", 0))
-        self.uv_transform_mode = int(getattr(self.cfg, "uv_transform_mode", 0))
+        self.ambient_strength = float(self.cfg.ambient_strength)
+        self.light_dir_world = wp.vec3(*self.cfg.light_direction)
+        self.enable_lighting = int(self.cfg.enable_lighting)
+        self.debug_uv_checker = int(self.cfg.debug_uv_checker)
         self.device = device
         self.camera_position_array = None
         self.camera_orientation_array = None
@@ -85,9 +88,10 @@ class WarpShadedRGBCam:
 
     def create_render_graph(self, debug=False):
         if not debug:
+            logger.info("Creating render graph")
             wp.capture_begin(device=self.device)
 
-        if getattr(self.cfg, "enable_textures", False) and self.vertex_uvs is not None and self.texture_image is not None:
+        if self.cfg.enable_textures and self.vertex_uvs is not None and self.texture_image is not None:
             wp.launch(
                 kernel=ShadedRGBCameraWarpKernels.draw_textured_rgbd_kernel,
                 dim=(self.num_envs, self.num_sensors, self.width, self.height),
@@ -107,8 +111,6 @@ class WarpShadedRGBCam:
                     self.base_color_factor,
                     self.enable_lighting,
                     self.debug_uv_checker,
-                    self.uv_bary_mode,
-                    self.uv_transform_mode,
                     self.ambient_strength,
                     self.light_dir_world,
                     self.c_x,
@@ -141,6 +143,7 @@ class WarpShadedRGBCam:
 
         if not debug:
             self.graph = wp.capture_end(device=self.device)
+            logger.info("Render graph captured")
 
     def capture(self, debug=False):
         if debug:

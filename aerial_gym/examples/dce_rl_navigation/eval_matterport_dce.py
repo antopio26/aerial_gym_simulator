@@ -84,7 +84,8 @@ class MatterportDCEEvalTaskConfig(_BaseCfg):
 
     class navmesh_sampling:
         enable = True
-        goal_height_offset_range = [0.15, 0.40]  # matches spawn_height_offset_range
+        spawn_height_offset_range = [0.3, 0.80]   # above floor, matches goal_height_offset_range
+        goal_height_offset_range = [0.3, 0.80]      # matches spawn_height_offset_range
         goal_min_separation = 2.0                  # no separation constraint (same as spawn)
         goal_max_separation = None
         max_pair_sampling_attempts = 6             # single sample, no resampling loop
@@ -141,7 +142,7 @@ def parse_eval_args():
     )
     p.add_argument(
         "--scene_folder",
-        default=None,
+        default="00807-rsggHU7g7dh",
         help="Folder containing a .glb scene file (auto-detected).",
     )
     p.add_argument(
