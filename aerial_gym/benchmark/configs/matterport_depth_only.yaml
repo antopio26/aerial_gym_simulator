@@ -1,0 +1,31 @@
+seed: 0
+
+env_counts: [1, 2, 4, 8, 16]
+warmup_steps: 100
+bench_steps: 300
+
+headless: true
+device: cuda:0
+controller_name: lee_position_control
+
+env_name: env_with_obstacles
+robot_name: base_quadrotor_with_camera
+
+camera:
+  width: 240
+  height: 135
+  max_range: 80.0
+
+render:
+  render_every: 1
+
+gif:
+  save_gifs: false
+  every: 5
+  max_frames: 300
+  duration_ms: 60
+
+spawn_region: {}
+
+output:
+  report_path: aerial_gym/benchmark/stored_data/depth_only_benchmark.json
