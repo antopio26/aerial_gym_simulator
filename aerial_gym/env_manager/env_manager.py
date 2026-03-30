@@ -455,6 +455,9 @@ class EnvManager(BaseManager):
             self.compute_observations()
         self.sim_steps[:] = self.sim_steps[:] + 1
         self.step_counter += 1
+        # Keep viewer interaction responsive even when draw cadence is throttled.
+        if self.IGE_env.viewer is not None:
+            self.IGE_env.viewer.process_events_only()
         if self.step_counter % self.cfg.env.render_viewer_every_n_steps == 0:
             self.render(render_components="viewer")
 

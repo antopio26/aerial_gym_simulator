@@ -34,6 +34,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TRAIN_DIR="${TRAIN_DIR:-$(pwd)/selected_network}"
 EXPERIMENT="${EXPERIMENT:-selected_network}"
 CHECKPOINT_KIND="${CHECKPOINT_KIND:-best}"
+VIEWER_EVERY="${VIEWER_EVERY:-3}"
+DISPLAY_EVERY="${DISPLAY_EVERY:-4}"
+POLICY_EVERY="${POLICY_EVERY:-4}"
+TEXTURE_ATLAS_TILE_SIZE="${TEXTURE_ATLAS_TILE_SIZE:-1024}"
 
 python3 "${SCRIPT_DIR}/eval_matterport_dce.py" \
     --train_dir="${TRAIN_DIR}" \
@@ -41,4 +45,8 @@ python3 "${SCRIPT_DIR}/eval_matterport_dce.py" \
     --env=test \
     --obs_key="observations" \
     --load_checkpoint_kind="${CHECKPOINT_KIND}" \
+    --viewer_every="${VIEWER_EVERY}" \
+    --display_every="${DISPLAY_EVERY}" \
+    --policy_every="${POLICY_EVERY}" \
+    --texture_atlas_tile_size="${TEXTURE_ATLAS_TILE_SIZE}" \
     "$@"

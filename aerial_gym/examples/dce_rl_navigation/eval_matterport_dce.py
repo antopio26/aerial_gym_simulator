@@ -85,11 +85,11 @@ class MatterportDCEEvalTaskConfig(_BaseCfg):
     class navmesh_sampling:
         enable = True
         spawn_height_offset_range = [0.3, 0.80]   # above floor, matches goal_height_offset_range
-        goal_height_offset_range = [0.3, 0.80]      # matches spawn_height_offset_range
-        goal_min_separation = 2.0                  # no separation constraint (same as spawn)
-        goal_max_separation = None
-        max_pair_sampling_attempts = 6             # single sample, no resampling loop
-
+        goal_height_offset_range = [0.3, 0.80]    # matches spawn_height_offset_range
+        goal_min_separation = 2.0                  
+        goal_max_separation = 4.0
+        max_pair_sampling_attempts = 6            
+        
     class vae_config(_BaseCfg.vae_config):
         # Inherited: use_vae=True, latent_dims=64, image_res=(270,480)
         # The shaded RGBD camera now follows base depth camera resolution (135,240).
@@ -134,6 +134,8 @@ class MatterportDCEEvalTaskConfig(_BaseCfg):
 
 def parse_eval_args():
     """Parse script-specific args not consumed by Sample Factory."""
+    import sys
+
     p = argparse.ArgumentParser(add_help=False)
     p.add_argument(
         "--scene_file",
@@ -163,7 +165,48 @@ def parse_eval_args():
         default=4,
         help="Run policy inference every N physics steps (hold last action in between).",
     )
-    known, _ = p.parse_known_args()
+    p.add_argument(
+        "--display_every",
+        type=int,
+        default=4,
+        help="Update the OpenCV RGB/depth window every N simulation steps.",
+    )
+    p.add_argument(
+        "--viewer_every",
+        type=int,
+        default=1,
+        help=(
+            "Render Isaac viewer every N simulation steps (keeps viewer enabled). "
+            "Use 1 for fluid interaction; higher values reduce responsiveness."
+        ),
+    )
+    p.add_argument(
+        "--texture_atlas_tile_size",
+        type=int,
+        default=1024,
+        help="Matterport texture atlas tile size. Lower values reduce GPU memory pressure.",
+    )
+    p.add_argument(
+        "--sync_frame_time",
+        action="store_true",
+        default=False,
+        help="Enable Isaac Gym frame sync (off by default for better throughput).",
+    )
+    p.add_argument(
+        "--disable_viewer_sync",
+        action="store_true",
+        default=False,
+        help="Disable viewer graphics sync before draw (viewer stays enabled).",
+    )
+    p.add_argument(
+        "--vae_encode_every",
+        type=int,
+        default=1,
+        help="Encode VAE latent every N task steps (reuse previous latent in between).",
+    )
+    known, unknown = p.parse_known_args()
+    # Keep only Sample Factory args for the downstream parser.
+    sys.argv = [sys.argv[0]] + unknown
     return known
 
 
@@ -220,11 +263,20 @@ def _resolve_glb(scene_file=None, scene_folder=None):
     )
 
 
-def setup_navmesh(scene_file=None, scene_folder=None):
+def setup_navmesh(eval_args):
     """Resolve scene, enable navmesh spawn (env) and goal sampling (task)."""
-    glb_path = _resolve_glb(scene_file=scene_file, scene_folder=scene_folder)
+    glb_path = _resolve_glb(scene_file=eval_args.scene_file, scene_folder=eval_args.scene_folder)
     MatterportGLBEnvCfg.static_scene.file = glb_path
+    MatterportGLBEnvCfg.static_scene.texture_atlas_tile_size = max(
+        128, int(eval_args.texture_atlas_tile_size)
+    )
+    MatterportGLBEnvCfg.env.render_viewer_every_n_steps = max(1, int(eval_args.viewer_every))
     logger.warning("Matterport scene: %s", glb_path)
+    logger.warning(
+        "Runtime perf config | viewer_every=%d texture_atlas_tile_size=%d",
+        MatterportGLBEnvCfg.env.render_viewer_every_n_steps,
+        MatterportGLBEnvCfg.static_scene.texture_atlas_tile_size,
+    )
 
     # navmesh_file=None → NavMeshSpawnSampler auto-resolves from the scene path
     MatterportGLBEnvCfg.navmesh_sampling.enable = True
@@ -274,6 +326,12 @@ def update_display(obs_dict):
     has_rgb   = "rgb_pixels"         in obs_dict
     has_depth = "depth_range_pixels" in obs_dict
 
+    try:
+        if cv2.getWindowProperty(CV_WIN, cv2.WND_PROP_VISIBLE) < 1:
+            return
+    except cv2.error:
+        return
+
     if has_rgb:
         rgb_np  = obs_dict["rgb_pixels"][0, 0].cpu().numpy()          # (H,W,3) RGB float
         rgb_u8  = np.clip(rgb_np * 255.0, 0, 255).astype(np.uint8)
@@ -298,6 +356,19 @@ def update_display(obs_dict):
     combined = np.concatenate([rgb_bgr, depth_bgr], axis=1)
     cv2.imshow(CV_WIN, combined)
     cv2.waitKey(1)
+
+
+def configure_runtime_viewer(rl_task, eval_args):
+    viewer_ctrl = rl_task.sim_env.IGE_env.viewer
+    if viewer_ctrl is None:
+        return
+    viewer_ctrl.sync_frame_time = bool(eval_args.sync_frame_time)
+    viewer_ctrl.enable_viewer_sync = not bool(eval_args.disable_viewer_sync)
+    logger.warning(
+        "Viewer runtime config | sync_frame_time=%s enable_viewer_sync=%s",
+        viewer_ctrl.sync_frame_time,
+        viewer_ctrl.enable_viewer_sync,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -457,12 +528,13 @@ def _log_spawn_goal(rl_task, episode):
 
 def run_evaluation(eval_args):
     policy_every = max(1, int(eval_args.policy_every))
+    display_every = max(1, int(eval_args.display_every))
+    MatterportDCEEvalTaskConfig.vae_config.encode_every_n_steps = max(
+        1, int(eval_args.vae_encode_every)
+    )
 
     # 1. Mutate env config before the task (and thus EnvManager) is built
-    setup_navmesh(
-        scene_file=eval_args.scene_file,
-        scene_folder=eval_args.scene_folder,
-    )
+    setup_navmesh(eval_args)
 
     # 2. Register the custom task
     task_registry.register_task(
@@ -480,6 +552,18 @@ def run_evaluation(eval_args):
     )
     logger.warning("Task created. num_envs=%d", rl_task.num_envs)
     logger.warning("Policy inference frequency: every %d physics steps", policy_every)
+    logger.warning("OpenCV display frequency: every %d physics steps", display_every)
+    if MatterportGLBEnvCfg.env.render_viewer_every_n_steps > 1:
+        logger.warning(
+            "Viewer cadence is throttled (viewer_every=%d). This makes camera controls "
+            "and navigation feel laggy. Use --viewer_every=1 for fluid 3D interaction.",
+            MatterportGLBEnvCfg.env.render_viewer_every_n_steps,
+        )
+    logger.warning(
+        "VAE encoding frequency: every %d task steps",
+        MatterportDCEEvalTaskConfig.vae_config.encode_every_n_steps,
+    )
+    configure_runtime_viewer(rl_task, eval_args)
 
     # 4. Build the NN policy (parse_aerialgym_cfg reads CLI args here)
     nn_model = build_nn_model(rl_task.num_envs)
@@ -525,6 +609,8 @@ def run_evaluation(eval_args):
             robot_pos = rl_task.obs_dict["robot_position"][0].cpu().numpy()
             traj_buf.append(robot_pos.copy())
             draw_debug(rl_task, goal_np, list(traj_buf))
+
+        if step_i % display_every == 0:
             update_display(rl_task.obs_dict)
 
         # Handle episode resets

@@ -344,7 +344,12 @@ class NavigationTask(BaseTask):
     def process_image_observation(self):
         image_obs = self.obs_dict["depth_range_pixels"].squeeze(1)
         if self.task_config.vae_config.use_vae:
-            self.image_latents[:] = self.vae_model.encode(image_obs)
+            encode_every_n_steps = max(
+                1, int(getattr(self.task_config.vae_config, "encode_every_n_steps", 1))
+            )
+            # Evaluation can reuse the last latent on intermediate steps to reduce VAE overhead.
+            if (self.num_task_steps - 1) % encode_every_n_steps == 0:
+                self.image_latents[:] = self.vae_model.encode(image_obs)
         # # comments to make sure the VAE does as expected
         # decoded_image = self.vae_model.decode(self.image_latents[0].unsqueeze(0))
         # image0 = image_obs[0].cpu().numpy()

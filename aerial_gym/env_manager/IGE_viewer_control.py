@@ -282,10 +282,9 @@ class IGEViewerControl:
         """
         Draw the viewer.
         """
-        if self.gym.query_viewer_has_closed(self.viewer):
-            logger.critical("Viewer has been closed. Exiting simulation.")
-            sys.exit()
-        self.handle_keyboard_events()
+        self.process_events_only()
+        if self.viewer is None:
+            return
         if self.enable_viewer_sync:
             if self.camera_follow:
                 self.set_camera_lookat()
@@ -294,3 +293,17 @@ class IGEViewerControl:
                 self.gym.sync_frame_time(self.sim)
         else:
             self.gym.poll_viewer_events(self.viewer)
+
+    def process_events_only(self):
+        """Service viewer events without forcing a draw.
+
+        This keeps keyboard/mouse navigation responsive when draw cadence is throttled.
+        """
+        if self.viewer is None:
+            return
+        if self.gym.query_viewer_has_closed(self.viewer):
+            logger.critical("Viewer has been closed. Exiting simulation.")
+            sys.exit()
+        # Poll OS/window events each step so interaction does not depend on draw cadence.
+        self.gym.poll_viewer_events(self.viewer)
+        self.handle_keyboard_events()
