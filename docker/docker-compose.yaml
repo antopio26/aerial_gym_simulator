@@ -22,6 +22,7 @@ services:
       # forwarded X11 display (required for Wayland/Xwayland hosts).
       - ${XAUTHORITY:-/dev/null}:/root/.Xauthority:ro
       - ..:/opt/aerialgym
+      - /home/anto/Documents/shared_models:/shared_models
     working_dir: /opt/aerialgym
     stdin_open: true
     tty: true
