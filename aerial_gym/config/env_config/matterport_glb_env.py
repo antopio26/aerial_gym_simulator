@@ -1,4 +1,11 @@
 class MatterportGLBEnvCfg:
+    # Global scene scale factor applied uniformly to the mesh and navmesh.
+    # Scales the static scene geometry and the navmesh (via inherit_scene_transform),
+    # but does NOT affect the robot size or dynamics.
+    # This multiplies static_scene.scale, so the effective mesh scale is
+    #   static_scene.scale * scene_scale.
+    scene_scale = 1.0
+
     class env:
         num_envs = 1
         num_env_actions = 0

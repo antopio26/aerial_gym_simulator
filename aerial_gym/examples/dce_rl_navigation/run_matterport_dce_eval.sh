@@ -48,5 +48,7 @@ python3 "${SCRIPT_DIR}/eval_matterport_dce.py" \
     --viewer_every="${VIEWER_EVERY}" \
     --display_every="${DISPLAY_EVERY}" \
     --policy_every="${POLICY_EVERY}" \
+    --vae_encode_every=${POLICY_EVERY} \
+    --scene_scale=2.0 \
     --texture_atlas_tile_size="${TEXTURE_ATLAS_TILE_SIZE}" \
     "$@"

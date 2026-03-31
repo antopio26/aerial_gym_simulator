@@ -164,7 +164,7 @@ def parse_eval_args():
     p.add_argument(
         "--policy_every",
         type=int,
-        default=4,
+        default=2,
         help="Run policy inference every N physics steps (hold last action in between).",
     )
     p.add_argument(
@@ -203,8 +203,17 @@ def parse_eval_args():
     p.add_argument(
         "--vae_encode_every",
         type=int,
-        default=1,
+        default=2,
         help="Encode VAE latent every N task steps (reuse previous latent in between).",
+    )
+    p.add_argument(
+        "--scene_scale",
+        type=float,
+        default=1.0,
+        help=(
+            "Global scale factor applied to the mesh and navmesh "
+            "(multiplies static_scene.scale). Does not affect the robot."
+        ),
     )
     p.add_argument(
         "--max_goal_spawn_dz",
@@ -279,11 +288,19 @@ def setup_navmesh(eval_args):
         128, int(eval_args.texture_atlas_tile_size)
     )
     MatterportGLBEnvCfg.env.render_viewer_every_n_steps = max(1, int(eval_args.viewer_every))
+
+    # Apply the global scene scale to the static mesh (and thus the navmesh via
+    # inherit_scene_transform). The robot geometry is unaffected.
+    scene_scale = float(eval_args.scene_scale)
+    MatterportGLBEnvCfg.scene_scale = scene_scale
+    MatterportGLBEnvCfg.static_scene.scale = MatterportGLBEnvCfg.static_scene.scale * scene_scale
+
     logger.warning("Matterport scene: %s", glb_path)
     logger.warning(
-        "Runtime perf config | viewer_every=%d texture_atlas_tile_size=%d",
+        "Runtime perf config | viewer_every=%d texture_atlas_tile_size=%d scene_scale=%.4f",
         MatterportGLBEnvCfg.env.render_viewer_every_n_steps,
         MatterportGLBEnvCfg.static_scene.texture_atlas_tile_size,
+        scene_scale,
     )
 
     # navmesh_file=None → NavMeshSpawnSampler auto-resolves from the scene path
