@@ -19,7 +19,7 @@ Common features:
   - Isaac Gym 3D viewer (shows drone 0 / DCE drone in both modes)
   - OpenCV camera window:
       dce mode:        RGB | Depth  (side-by-side, 1 row)
-      comparison mode: 2×2 grid — top row = DCE drone, bottom row = ViT drone
+      comparison mode: 2x2 grid — top row = DCE drone, bottom row = ViT drone
                        Panels for the unused modality are dimmed and labelled.
 
 Usage:
@@ -44,19 +44,19 @@ import isaacgym  # must be imported before torch
 # isort: on
 
 import argparse
-from collections import deque
-
 import cv2
 import numpy as np
 import torch
 
 from aerial_gym import AERIAL_GYM_DIRECTORY
 from aerial_gym.config.env_config.matterport_glb_env import MatterportGLBEnvCfg
-from aerial_gym.config.task_config.navigation_task_config import task_config as _BaseCfg
-from aerial_gym.examples.dce_rl_navigation.dce_navigation_task import DCE_RL_Navigation_Task
-from aerial_gym.examples.dce_rl_navigation.dce_vit_comparison_task import (
-    ComparisonTaskConfig,
-    DCEViTComparisonTask,
+from aerial_gym.config.task_config.matterport_dce_task_config import (
+    MatterportVAETaskConfig,
+    MatterportComparisonTaskConfig,
+)
+from aerial_gym.examples.dce_rl_navigation.matterport_dce_task import (
+    MatterportDCENavigationTask,
+    MatterportComparisonTask,
 )
 from aerial_gym.examples.dce_rl_navigation.sf_inference_class import NN_Inference_Class
 from aerial_gym.registry.task_registry import task_registry
@@ -66,95 +66,6 @@ from aerial_gym.rl_training.sample_factory.aerialgym_examples.train_aerialgym im
 from aerial_gym.utils.logging import CustomLogger
 
 logger = CustomLogger(__name__)
-
-
-# ===========================================================================
-# Task configuration
-# ===========================================================================
-
-class MatterportDCEEvalTaskConfig(_BaseCfg):
-    """
-    Single-env task config for DCE policy evaluation in a Matterport scene.
-
-    Key overrides vs. the base navigation_task_config:
-      env_name         → matterport_glb_env
-      robot_name       → lmf2_with_shaded_rgbd_camera  (RGBD camera, H=240×W=320)
-      controller_name  → lmf2_velocity_control
-      num_envs         → 1  (overridden to 2 in comparison mode)
-      headless         → False (3D viewer enabled)
-      navmesh_sampling → enabled (safe floor-level spawn / goal positions)
-      curriculum.min_level → 36  (matches DCE_RL_Navigation_Task default)
-      episode_len_steps    → 1000
-    """
-
-    seed             = 42
-    sim_name         = "base_sim"
-    env_name         = "matterport_glb_env"
-    robot_name       = "lmf2_with_shaded_rgbd_camera"
-    controller_name  = "lmf2_velocity_control"
-    args             = {}
-    num_envs         = 1
-    use_warp         = True
-    headless         = False
-    device           = "cuda:0"
-
-    # Observation / action dimensions — match the trained DCE policy exactly.
-    observation_space_dim          = 81   # 17 state + 64 image latent
-    privileged_observation_space_dim = 0
-    action_space_dim               = 3    # re-applied by DCE_RL_Navigation_Task
-    episode_len_steps              = 1000
-    return_state_before_reset      = False
-
-    # Ratio-based goal bounds (fallback when navmesh sampling fails)
-    target_min_ratio = [0.10, 0.10, 0.10]
-    target_max_ratio = [0.90, 0.90, 0.90]
-
-    class navmesh_sampling:
-        enable                   = True
-        edge_padding             = 1.5
-        spawn_height_offset_range = [0.8, 1.8]
-        goal_height_offset_range  = [0.8, 1.8]
-        goal_min_separation      = 2.0
-        goal_max_separation      = 10.0
-        max_pair_sampling_attempts = 30
-
-    class vae_config(_BaseCfg.vae_config):
-        # Inherited: use_vae=True, latent_dims=64, image_res=(270,480)
-        # encode_every_n_steps is set at runtime from --vae_encode_every.
-        pass
-
-    class curriculum(_BaseCfg.curriculum):
-        min_level = 36  # matches DCE_RL_Navigation_Task.__init__ override
-
-    @staticmethod
-    def action_transformation_function(action):
-        """DCE-style 3-dim → 4-dim velocity command."""
-        clamped = torch.clamp(action, -1.0, 1.0)
-        max_speed      = 2.0
-        max_yawrate    = torch.pi / 3
-        max_tilt_angle = torch.pi / 4
-
-        clamped[:, 0] += 1.0   # shift forward component from [-1,1] to [0,2]
-        out = torch.zeros(
-            (clamped.shape[0], 4),
-            device=MatterportDCEEvalTaskConfig.device,
-            requires_grad=False,
-        )
-        out[:, 0] = clamped[:, 0] * torch.cos(max_tilt_angle * clamped[:, 1]) * max_speed / 2.0
-        out[:, 1] = 0.0
-        out[:, 2] = clamped[:, 0] * torch.sin(max_tilt_angle * clamped[:, 1]) * max_speed / 2.0
-        out[:, 3] = clamped[:, 2] * max_yawrate
-        return out
-
-
-# Comparison mode inherits all of the above and sets num_envs=2.
-class MatterportComparisonTaskConfig(ComparisonTaskConfig, MatterportDCEEvalTaskConfig):
-    """
-    Task config for comparison mode (two parallel envs, same scene and goal).
-    vit_model_path and vit_metadata_path are set at runtime in make_task().
-    """
-    vit_model_path:    str = ""
-    vit_metadata_path: str = ""
 
 
 # ===========================================================================
@@ -353,24 +264,23 @@ def setup_scene(eval_args) -> None:
     MatterportGLBEnvCfg.navmesh_sampling.enable = True
     MatterportGLBEnvCfg.navmesh_sampling.navmesh_file = None
     MatterportGLBEnvCfg.navmesh_sampling.spawn_height_offset_range = list(
-        MatterportDCEEvalTaskConfig.navmesh_sampling.spawn_height_offset_range
+        MatterportVAETaskConfig.navmesh_sampling.spawn_height_offset_range
     )
 
-    # Apply navmesh_sampling.enable to both task config classes so they share
-    # the same navmesh sampler regardless of pipeline.
-    for cfg_cls in (MatterportDCEEvalTaskConfig, MatterportComparisonTaskConfig):
+    # Enable task-level navmesh goal sampling for both pipeline configs.
+    for cfg_cls in (MatterportVAETaskConfig, MatterportComparisonTaskConfig):
         cfg_cls.navmesh_sampling.enable = True
 
     logger.warning("Navmesh sampling enabled.")
     logger.warning(
         "Height ranges | spawn(env)=%s  goal(task)=%s",
         MatterportGLBEnvCfg.navmesh_sampling.spawn_height_offset_range,
-        MatterportDCEEvalTaskConfig.navmesh_sampling.goal_height_offset_range,
+        MatterportVAETaskConfig.navmesh_sampling.goal_height_offset_range,
     )
 
     # Warn if height ranges are incompatible with the Z-tolerance
     spawn_h = MatterportGLBEnvCfg.navmesh_sampling.spawn_height_offset_range
-    goal_h  = MatterportDCEEvalTaskConfig.navmesh_sampling.goal_height_offset_range
+    goal_h  = MatterportVAETaskConfig.navmesh_sampling.goal_height_offset_range
     dz      = float(eval_args.max_goal_spawn_dz)
     if not ((spawn_h[0] - dz <= goal_h[1]) and (goal_h[0] - dz <= spawn_h[1])):
         logger.warning(
@@ -385,23 +295,17 @@ def setup_scene(eval_args) -> None:
 # ===========================================================================
 
 def make_task(eval_args, pipeline: str):
-    """
-    Register and instantiate the navigation task for the chosen pipeline.
-
-    Returns the rl_task instance.
-    """
+    """Register and instantiate the navigation task for the chosen pipeline."""
     if pipeline == "comparison":
         if not eval_args.vit_model_path or not eval_args.vit_metadata:
             raise ValueError(
                 "--pipeline=comparison requires --vit_model_path and --vit_metadata."
             )
-        # Store paths on the config — task_registry.make_task() has a fixed
-        # signature and cannot forward extra kwargs.
-        MatterportComparisonTaskConfig.vit_model_path    = eval_args.vit_model_path
-        MatterportComparisonTaskConfig.vit_metadata_path = eval_args.vit_metadata
+        MatterportComparisonTaskConfig.vit_config.model_path    = eval_args.vit_model_path
+        MatterportComparisonTaskConfig.vit_config.metadata_path = eval_args.vit_metadata
         task_registry.register_task(
             "matterport_comparison_task",
-            DCEViTComparisonTask,
+            MatterportComparisonTask,
             MatterportComparisonTaskConfig,
         )
         rl_task = task_registry.make_task(
@@ -413,8 +317,8 @@ def make_task(eval_args, pipeline: str):
     else:  # "dce"
         task_registry.register_task(
             "matterport_dce_eval_task",
-            DCE_RL_Navigation_Task,
-            MatterportDCEEvalTaskConfig,
+            MatterportDCENavigationTask,
+            MatterportVAETaskConfig,
         )
         rl_task = task_registry.make_task(
             "matterport_dce_eval_task",
@@ -495,7 +399,7 @@ def _dim_panel(img: np.ndarray, label: str, sat_reduction: float = 0.70) -> np.n
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV).astype(np.float32)
     hsv[:, :, 1] *= (1.0 - sat_reduction)
     desat_img = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
-    
+
     out = (desat_img.astype(np.float32) * _DIM_FACTOR).clip(0, 255).astype(np.uint8)
     cv2.putText(out, label, (6, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1, cv2.LINE_AA)
     return out
@@ -528,7 +432,7 @@ def build_dce_display() -> None:
 
 def build_comparison_display() -> None:
     cv2.namedWindow(_CV_WIN_COMPARISON, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(_CV_WIN_COMPARISON, 960, 540)   # 2 rows × 270 px
+    cv2.resizeWindow(_CV_WIN_COMPARISON, 960, 540)   # 2 rows x 270 px
     cv2.imshow(_CV_WIN_COMPARISON, np.zeros((540, 960, 3), dtype=np.uint8))
     cv2.waitKey(1)
 
@@ -584,7 +488,7 @@ def update_dce_display(obs_dict) -> None:
 
 def update_comparison_display(obs_dict, statuses=None) -> None:
     """
-    2×2 comparison display.
+    2x2 comparison display.
 
     Row 0 (DCE drone):
       - Left:  DCE RGB    → dimmed (DCE does not use RGB)
@@ -650,7 +554,7 @@ _GOAL_VERTS  = None
 _GOAL_COLORS = None
 
 
-def draw_debug(rl_task, goal_np, traj_list, cross_half: float = 0.3) -> None:
+def draw_debug(rl_task, goal_np, cross_half: float = 0.3) -> None:
     """Draw a red cross at the goal."""
     global _GOAL_VERTS, _GOAL_COLORS
 
@@ -735,14 +639,14 @@ class ComparisonEpisodeStats:
 
     def record(self, termination, truncation, infos) -> None:
         self.dce.record(
-            termination[[DCEViTComparisonTask.VAE_ENV_ID]],
-            truncation[[DCEViTComparisonTask.VAE_ENV_ID]],
-            self._slice_infos(infos, DCEViTComparisonTask.VAE_ENV_ID),
+            termination[[MatterportComparisonTask.VAE_ENV_ID]],
+            truncation[[MatterportComparisonTask.VAE_ENV_ID]],
+            self._slice_infos(infos, MatterportComparisonTask.VAE_ENV_ID),
         )
         self.vit.record(
-            termination[[DCEViTComparisonTask.VIT_ENV_ID]],
-            truncation[[DCEViTComparisonTask.VIT_ENV_ID]],
-            self._slice_infos(infos, DCEViTComparisonTask.VIT_ENV_ID),
+            termination[[MatterportComparisonTask.VIT_ENV_ID]],
+            truncation[[MatterportComparisonTask.VIT_ENV_ID]],
+            self._slice_infos(infos, MatterportComparisonTask.VIT_ENV_ID),
         )
 
     def log(self) -> None:
@@ -818,7 +722,6 @@ def _handle_episode_reset(
     infos,
     policy_every:    int,
     eval_args,
-    traj_buf:        deque,
 ) -> None:
     """
     Called when any environment has terminated or truncated.
@@ -864,7 +767,6 @@ def _handle_episode_reset(
         keep_mask[reset_env_ids] = False
         nn_model.rnn_states[keep_mask] = rnn_before[keep_mask]
 
-    traj_buf.clear()
     _regenerate_goal_with_height_tolerance(
         rl_task, max_dz=float(eval_args.max_goal_spawn_dz)
     )
@@ -876,13 +778,18 @@ def _handle_episode_reset(
 # ===========================================================================
 
 def _run_dce_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> None:
-    """Main step loop for DCE-only mode."""
+    """
+    Main step loop for DCE-only mode.
+
+    VAE depth pipeline (matches dce_nn_navigation.py training exactly):
+      lmf2 / BaseDepthCameraConfig → 135x240, max_range=10m, normalized [0,1]
+      VAEPipeline.encode(): min-pool no-op → VAEImageEncoder interp to (270,480) → 64-dim latent
+    """
     policy_every  = max(1, int(eval_args.policy_every))
     display_every = max(1, int(eval_args.display_every))
-    max_steps     = eval_args.max_episodes * MatterportDCEEvalTaskConfig.episode_len_steps
+    max_steps     = eval_args.max_episodes * MatterportVAETaskConfig.episode_len_steps
 
-    stats    = EpisodeStats()
-    traj_buf = deque(maxlen=200)
+    stats = EpisodeStats()
 
     build_dce_display()
     rl_task.reset()
@@ -891,7 +798,7 @@ def _run_dce_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> None:
 
     command_actions = torch.zeros(
         (rl_task.num_envs, rl_task.task_config.action_space_dim),
-        device=MatterportDCEEvalTaskConfig.device,
+        device=MatterportVAETaskConfig.device,
     )
 
     for step_i in range(max_steps):
@@ -915,10 +822,7 @@ def _run_dce_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> None:
             command_actions[:] = action
 
         if step_i % eval_args.vis_every == 0:
-            goal_np   = rl_task.target_position[0].cpu().numpy()
-            robot_pos = rl_task.obs_dict["robot_position"][0].cpu().numpy()
-            traj_buf.append(robot_pos.copy())
-            draw_debug(rl_task, goal_np, list(traj_buf))
+            draw_debug(rl_task, rl_task.target_position[0].cpu().numpy())
 
         if step_i % display_every == 0:
             update_dce_display(rl_task.obs_dict)
@@ -928,7 +832,7 @@ def _run_dce_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> None:
             _handle_episode_reset(
                 rl_task, nn_model, obs, command_actions,
                 stats, termination, truncation, infos,
-                policy_every, eval_args, traj_buf,
+                policy_every, eval_args,
             )
             if stats.episodes % 10 == 0:
                 stats.log(label="DCE")
@@ -943,7 +847,7 @@ def _run_comparison_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> No
     """Main step loop for comparison mode (two parallel drones)."""
     policy_every  = max(1, int(eval_args.policy_every))
     display_every = max(1, int(eval_args.display_every))
-    max_ep_steps  = MatterportDCEEvalTaskConfig.episode_len_steps
+    max_ep_steps  = MatterportVAETaskConfig.episode_len_steps
 
     # ---------------------------------------------------------
     # DISABLE AUTO-RESET AND CURRICULUM UPDATES
@@ -954,8 +858,7 @@ def _run_comparison_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> No
         rl_task.check_and_update_curriculum_level = lambda *args, **kwargs: None
     # ---------------------------------------------------------
 
-    stats    = ComparisonEpisodeStats()
-    traj_buf = deque(maxlen=200)   # trajectory for env 0 (DCE drone, shown in 3D viewer)
+    stats = ComparisonEpisodeStats()
 
     def sync_robots_and_goal():
         rl_task.target_position[1] = rl_task.target_position[0]
@@ -964,7 +867,7 @@ def _run_comparison_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> No
         # Force state write to sim
         if hasattr(rl_task.sim_env, "IGE_env") and hasattr(rl_task.sim_env.IGE_env, "write_to_sim"):
             rl_task.sim_env.IGE_env.write_to_sim()
-            
+
         # Optional: manually invoke update_states to ensure derived quantities (Euler angles, etc.) don't lag
         if hasattr(rl_task.sim_env.robot_manager, "robot") and hasattr(rl_task.sim_env.robot_manager.robot, "update_states"):
             rl_task.sim_env.robot_manager.robot.update_states()
@@ -974,18 +877,18 @@ def _run_comparison_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> No
                 tensor[1] = tensor[0].clone()
 
     build_comparison_display()
-    
+
     # Force initial simulation reset to seed valid robot states before our manual sync
     rl_task.sim_env.reset_idx(torch.arange(rl_task.num_envs, device=rl_task.device))
     rl_task.reset()
-    
+
     _regenerate_goal_with_height_tolerance(rl_task, max_dz=float(eval_args.max_goal_spawn_dz))
     sync_robots_and_goal()
     _log_spawn_goal(rl_task, episode=0)
 
     command_actions = torch.zeros(
         (rl_task.num_envs, rl_task.task_config.action_space_dim),
-        device=MatterportDCEEvalTaskConfig.device,
+        device=MatterportVAETaskConfig.device,
     )
 
     drones_done = torch.zeros(rl_task.num_envs, dtype=torch.bool, device=rl_task.device)
@@ -1022,10 +925,7 @@ def _run_comparison_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> No
         command_actions[drones_done] = 0.0
 
         if step_i % eval_args.vis_every == 0:
-            goal_np   = rl_task.target_position[0].cpu().numpy()
-            robot_pos = rl_task.obs_dict["robot_position"][0].cpu().numpy()
-            traj_buf.append(robot_pos.copy())
-            draw_debug(rl_task, goal_np, list(traj_buf))
+            draw_debug(rl_task, rl_task.target_position[0].cpu().numpy())
 
         if step_i % display_every == 0:
             update_comparison_display(rl_task.obs_dict, drone_statuses)
@@ -1035,7 +935,7 @@ def _run_comparison_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> No
 
         if newly_done.any():
             stats.record(newly_done & termination, newly_done & truncation, infos)
-            
+
             for d_idx in range(rl_task.num_envs):
                 if newly_done[d_idx]:
                     succ = bool(infos.get("successes", torch.zeros(rl_task.num_envs))[d_idx])
@@ -1045,7 +945,7 @@ def _run_comparison_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> No
                         drone_statuses[d_idx] = "SUCCESS"
                     else:
                         drone_statuses[d_idx] = "TIMEOUT"
-                        
+
             if newly_done[0]:
                 logger.warning("Episode %d (DCE/Env0): %s", stats.episodes, drone_statuses[0])
             if newly_done[1]:
@@ -1056,21 +956,20 @@ def _run_comparison_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> No
         if drones_done.all():
             if stats.episodes % 10 == 0:
                 stats.log()
-                
+
             episode_step = 0
             drones_done[:] = False
             drone_statuses = [None] * rl_task.num_envs
-            traj_buf.clear()
-            
+
             # Force sim level reset first
             rl_task.sim_env.reset_idx(torch.arange(rl_task.num_envs, device=rl_task.device))
             rl_task.reset()
-            
+
             nn_model.reset(torch.arange(rl_task.num_envs))
             _regenerate_goal_with_height_tolerance(rl_task, max_dz=float(eval_args.max_goal_spawn_dz))
             sync_robots_and_goal()
             _log_spawn_goal(rl_task, episode=stats.episodes)
-            
+
             command_actions[:] = 0.0
 
         step_i += 1
@@ -1087,7 +986,7 @@ def run_evaluation(eval_args) -> None:
     pipeline = eval_args.pipeline
 
     # Apply encode cadence to task configs before environment creation
-    MatterportDCEEvalTaskConfig.vae_config.encode_every_n_steps = max(
+    MatterportVAETaskConfig.vae_config.encode_every_n_steps = max(
         1, int(eval_args.vae_encode_every)
     )
     MatterportComparisonTaskConfig.vae_config.encode_every_n_steps = max(

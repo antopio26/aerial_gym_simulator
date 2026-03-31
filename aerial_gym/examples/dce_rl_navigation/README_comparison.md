@@ -66,7 +66,7 @@ VIT_METADATA=/my/models/metadata.json \
 
 ## Display layout
 
-The OpenCV window shows a **2×2 grid** during comparison mode. Panels for the
+The OpenCV window shows a **2x2 grid** during comparison mode. Panels for the
 *unused* modality are dimmed and labelled so it is immediately clear which
 signal each drone actually processes.
 

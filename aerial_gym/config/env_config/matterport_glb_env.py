@@ -43,7 +43,7 @@ class MatterportGLBEnvCfg:
         translation = [5.0, -5.0, 0.0]
         enable_texture_rendering = True
         # Resolution per unique texture tile in the deduplicated atlas.
-        # 41 unique tiles at 2048px → 7×6 atlas ~14336×12288 (~2 GB float32 GPU).
+        # 41 unique tiles at 2048px → 7x6 atlas ~14336x12288 (~2 GB float32 GPU).
         # Lower to 1024 to reduce to ~530 MB, or 512 for ~132 MB.
         texture_atlas_tile_size = 2048
         texture_atlas_tile_padding = 2

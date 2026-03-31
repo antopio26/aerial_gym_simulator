@@ -8,7 +8,7 @@ The TorchScript model is produced by sampl_geometic_head/export/export_vit_adapt
 It expects raw float [0, 1] RGB images; ImageNet normalisation is baked into the model.
 
 No resize is needed at inference time: the sim camera (lmf2_with_shaded_rgbd_camera)
-outputs H=240 × W=320 images, which matches the training resolution of the adapter.
+outputs H=240 x W=320 images, which matches the training resolution of the adapter.
 """
 
 import json
@@ -53,7 +53,7 @@ class ViTAdapterEncoder:
         print(
             f"[ViTAdapterEncoder] Ready | "
             f"latent_dim={self.latent_dim} | "
-            f"expected input H×W={self.target_height}×{self.target_width} | "
+            f"expected input HxW={self.target_height}x{self.target_width} | "
             f"device={self.device}"
         )
 
@@ -84,7 +84,7 @@ class ViTAdapterEncoder:
             x = rgb_images.permute(0, 3, 1, 2).contiguous()
 
             # Resize if the sim camera resolution changed from the training resolution.
-            # Under normal circumstances (sim at 240×320, training at 240×320) this
+            # Under normal circumstances (sim at 240x320, training at 240x320) this
             # is a no-op, but it guards against mis-matched configs.
             if x.shape[2] != self.target_height or x.shape[3] != self.target_width:
                 x = F.interpolate(

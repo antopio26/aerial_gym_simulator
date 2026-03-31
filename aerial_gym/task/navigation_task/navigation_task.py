@@ -82,15 +82,16 @@ class NavigationTask(BaseTask):
         self.pos_error_vehicle_frame_prev = torch.zeros_like(self.target_position)
         self.pos_error_vehicle_frame = torch.zeros_like(self.target_position)
 
+        # Always allocate image_latents — needed by any DCE pipeline (VAE or ViT).
+        self.image_latents = torch.zeros(
+            (self.sim_env.num_envs, self.task_config.vae_config.latent_dims),
+            device=self.device,
+            requires_grad=False,
+        )
         if self.task_config.vae_config.use_vae:
             self.vae_model = VAEImageEncoder(config=self.task_config.vae_config, device=self.device)
-            self.image_latents = torch.zeros(
-                (self.sim_env.num_envs, self.task_config.vae_config.latent_dims),
-                device=self.device,
-                requires_grad=False,
-            )
         else:
-            self.vae_model = lambda x: x
+            self.vae_model = None  # subclass overrides process_image_observation; not called
 
         # Get the dictionary once from the environment and use it to get the observations later.
         # This is to avoid constant retuning of data back anf forth across functions as the tensors update and can be read in-place.
