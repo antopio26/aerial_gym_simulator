@@ -33,7 +33,9 @@ class WarpShadedRGBCam:
         self.width = self.cfg.width
         self.height = self.cfg.height
         self.horizontal_fov = math.radians(self.cfg.horizontal_fov_deg)
-        self.far_plane = self.cfg.max_range
+        self.depth_far_plane = float(self.cfg.depth_max_range)
+        self.rgb_far_plane = float(self.cfg.rgb_max_range)
+        self.far_plane = max(self.depth_far_plane, self.rgb_far_plane)
         self.ambient_strength = float(self.cfg.ambient_strength)
         self.light_dir_world = wp.vec3(*self.cfg.light_direction)
         self.enable_lighting = int(self.cfg.enable_lighting)
@@ -100,7 +102,8 @@ class WarpShadedRGBCam:
                     self.camera_position_array,
                     self.camera_orientation_array,
                     self.K_inv,
-                    self.far_plane,
+                    self.depth_far_plane,
+                    self.rgb_far_plane,
                     self.rgb_pixels,
                     self.depth_pixels,
                     self.vertex_uvs,
@@ -127,7 +130,8 @@ class WarpShadedRGBCam:
                     self.camera_position_array,
                     self.camera_orientation_array,
                     self.K_inv,
-                    self.far_plane,
+                    self.depth_far_plane,
+                    self.rgb_far_plane,
                     self.rgb_pixels,
                     self.depth_pixels,
                     self.vertex_colors_array,

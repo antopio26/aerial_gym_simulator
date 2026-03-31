@@ -9,7 +9,12 @@ class ShadedRGBDCameraConfig(BaseDepthCameraConfig):
     height = 240
     width = 320
 
-    max_range = 10.0
+    # Depth and RGB channels can have independent max ranges.
+    # depth_max_range: ray hits beyond this distance report depth = depth_max_range.
+    # rgb_max_range:   ray hits beyond this distance produce a black pixel (background).
+    # The actual ray cast distance is max(depth_max_range, rgb_max_range).
+    depth_max_range = 10.0
+    rgb_max_range = 20.0
 
     # Shaded RGBD currently returns depth in depth_range_pixels and color in rgb_pixels.
     segmentation_camera = False

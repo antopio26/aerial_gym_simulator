@@ -9,7 +9,8 @@ class ShadedRGBCameraWarpKernels:
         cam_poss: wp.array(dtype=wp.vec3, ndim=2),
         cam_quats: wp.array(dtype=wp.quat, ndim=2),
         K_inv: wp.mat44,
-        far_plane: float,
+        depth_far_plane: float,
+        rgb_far_plane: float,
         rgb_pixels: wp.array(dtype=wp.vec3, ndim=4),
         depth_pixels: wp.array(dtype=float, ndim=4),
         vertex_uvs: wp.array(dtype=wp.vec2),
@@ -39,72 +40,77 @@ class ShadedRGBCameraWarpKernels:
         sign = float(0.0)
         n = wp.vec3()
         f = int(0)
-        dist = far_plane
+        far_plane = depth_far_plane
+        if rgb_far_plane > depth_far_plane:
+            far_plane = rgb_far_plane
+        dist = depth_far_plane
         color = wp.vec3(0.0, 0.0, 0.0)
 
         if wp.mesh_query_ray(mesh, ro, rd, far_plane, t, u, v, sign, n, f):
-            dist = t
-            mesh_obj = wp.mesh_get(mesh)
-            idx0 = mesh_obj.indices[f * 3 + 0]
-            idx1 = mesh_obj.indices[f * 3 + 1]
-            idx2 = mesh_obj.indices[f * 3 + 2]
+            if t < depth_far_plane:
+                dist = t
+            if t <= rgb_far_plane:
+                mesh_obj = wp.mesh_get(mesh)
+                idx0 = mesh_obj.indices[f * 3 + 0]
+                idx1 = mesh_obj.indices[f * 3 + 1]
+                idx2 = mesh_obj.indices[f * 3 + 2]
 
-            uv0 = vertex_uvs[idx0]
-            uv1 = vertex_uvs[idx1]
-            uv2 = vertex_uvs[idx2]
-            n0 = vertex_normals[idx0]
-            n1 = vertex_normals[idx1]
-            n2 = vertex_normals[idx2]
-            w = 1.0 - u - v
-            # Warp barycentrics (u, v, w) map to (uv0, uv1, uv2) for Matterport GLB.
-            uv = u * uv0 + v * uv1 + w * uv2
-            shading_normal = wp.normalize(w * n0 + u * n1 + v * n2)
+                uv0 = vertex_uvs[idx0]
+                uv1 = vertex_uvs[idx1]
+                uv2 = vertex_uvs[idx2]
+                n0 = vertex_normals[idx0]
+                n1 = vertex_normals[idx1]
+                n2 = vertex_normals[idx2]
+                w = 1.0 - u - v
+                # Warp barycentrics (u, v, w) map to (uv0, uv1, uv2) for Matterport GLB.
+                uv = u * uv0 + v * uv1 + w * uv2
+                shading_normal = wp.normalize(w * n0 + u * n1 + v * n2)
 
-            # Bilinear texture sampling with V-flip (GLTF V-axis convention).
-            fu = wp.clamp(uv[0], 0.0, 1.0) * float(texture_width - 1)
-            fv = wp.clamp(1.0 - uv[1], 0.0, 1.0) * float(texture_height - 1)
-            x0 = int(wp.floor(fu))
-            y0 = int(wp.floor(fv))
-            x1 = wp.min(x0 + 1, texture_width - 1)
-            y1 = wp.min(y0 + 1, texture_height - 1)
-            tx = fu - float(x0)
-            ty = fv - float(y0)
-            # uint8 -> float32 inline: 0.003921569 = 1.0 / 255.0
-            # Avoids storing a 4x larger float atlas on the GPU.
-            c00 = wp.vec3(float(texture_image[y0, x0, 0]) * 0.003921569,
-                          float(texture_image[y0, x0, 1]) * 0.003921569,
-                          float(texture_image[y0, x0, 2]) * 0.003921569)
-            c10 = wp.vec3(float(texture_image[y0, x1, 0]) * 0.003921569,
-                          float(texture_image[y0, x1, 1]) * 0.003921569,
-                          float(texture_image[y0, x1, 2]) * 0.003921569)
-            c01 = wp.vec3(float(texture_image[y1, x0, 0]) * 0.003921569,
-                          float(texture_image[y1, x0, 1]) * 0.003921569,
-                          float(texture_image[y1, x0, 2]) * 0.003921569)
-            c11 = wp.vec3(float(texture_image[y1, x1, 0]) * 0.003921569,
-                          float(texture_image[y1, x1, 1]) * 0.003921569,
-                          float(texture_image[y1, x1, 2]) * 0.003921569)
-            albedo = (
-                (1.0 - tx) * (1.0 - ty) * c00
-                + tx * (1.0 - ty) * c10
-                + (1.0 - tx) * ty * c01
-                + tx * ty * c11
-            )
-            albedo = wp.cw_mul(albedo, base_color_factor)
+                # Bilinear texture sampling with V-flip (GLTF V-axis convention).
+                fu = wp.clamp(uv[0], 0.0, 1.0) * float(texture_width - 1)
+                fv = wp.clamp(1.0 - uv[1], 0.0, 1.0) * float(texture_height - 1)
+                x0 = int(wp.floor(fu))
+                y0 = int(wp.floor(fv))
+                x1 = wp.min(x0 + 1, texture_width - 1)
+                y1 = wp.min(y0 + 1, texture_height - 1)
+                tx = fu - float(x0)
+                ty = fv - float(y0)
+                # uint8 -> float32 inline: 0.003921569 = 1.0 / 255.0
+                # Avoids storing a 4x larger float atlas on the GPU.
+                c00 = wp.vec3(float(texture_image[y0, x0, 0]) * 0.003921569,
+                              float(texture_image[y0, x0, 1]) * 0.003921569,
+                              float(texture_image[y0, x0, 2]) * 0.003921569)
+                c10 = wp.vec3(float(texture_image[y0, x1, 0]) * 0.003921569,
+                              float(texture_image[y0, x1, 1]) * 0.003921569,
+                              float(texture_image[y0, x1, 2]) * 0.003921569)
+                c01 = wp.vec3(float(texture_image[y1, x0, 0]) * 0.003921569,
+                              float(texture_image[y1, x0, 1]) * 0.003921569,
+                              float(texture_image[y1, x0, 2]) * 0.003921569)
+                c11 = wp.vec3(float(texture_image[y1, x1, 0]) * 0.003921569,
+                              float(texture_image[y1, x1, 1]) * 0.003921569,
+                              float(texture_image[y1, x1, 2]) * 0.003921569)
+                albedo = (
+                    (1.0 - tx) * (1.0 - ty) * c00
+                    + tx * (1.0 - ty) * c10
+                    + (1.0 - tx) * ty * c01
+                    + tx * ty * c11
+                )
+                albedo = wp.cw_mul(albedo, base_color_factor)
 
-            if debug_uv_checker != 0:
-                checker_u = int(wp.floor(uv[0] * 24.0))
-                checker_v = int(wp.floor(uv[1] * 24.0))
-                if (checker_u + checker_v) % 2 == 0:
-                    color = wp.vec3(0.95, 0.95, 0.95)
+                if debug_uv_checker != 0:
+                    checker_u = int(wp.floor(uv[0] * 24.0))
+                    checker_v = int(wp.floor(uv[1] * 24.0))
+                    if (checker_u + checker_v) % 2 == 0:
+                        color = wp.vec3(0.95, 0.95, 0.95)
+                    else:
+                        color = wp.vec3(0.10, 0.10, 0.10)
+                elif enable_lighting != 0:
+                    l_hat = wp.normalize(light_dir_world)
+                    lambert = wp.max(wp.dot(shading_normal, l_hat), 0.0)
+                    lit = ambient_strength + (1.0 - ambient_strength) * lambert
+                    color = lit * albedo
                 else:
-                    color = wp.vec3(0.10, 0.10, 0.10)
-            elif enable_lighting != 0:
-                l_hat = wp.normalize(light_dir_world)
-                lambert = wp.max(wp.dot(shading_normal, l_hat), 0.0)
-                lit = ambient_strength + (1.0 - ambient_strength) * lambert
-                color = lit * albedo
-            else:
-                color = albedo
+                    color = albedo
 
         rgb_pixels[env_id, cam_id, y, x] = color
         depth_pixels[env_id, cam_id, y, x] = dist
@@ -116,7 +122,8 @@ class ShadedRGBCameraWarpKernels:
         cam_poss: wp.array(dtype=wp.vec3, ndim=2),
         cam_quats: wp.array(dtype=wp.quat, ndim=2),
         K_inv: wp.mat44,
-        far_plane: float,
+        depth_far_plane: float,
+        rgb_far_plane: float,
         rgb_pixels: wp.array(dtype=wp.vec3, ndim=4),
         depth_pixels: wp.array(dtype=float, ndim=4),
         vertex_colors: wp.array(dtype=wp.vec3),
@@ -141,33 +148,38 @@ class ShadedRGBCameraWarpKernels:
         sign = float(0.0)
         n = wp.vec3()
         f = int(0)
-        dist = far_plane
+        far_plane = depth_far_plane
+        if rgb_far_plane > depth_far_plane:
+            far_plane = rgb_far_plane
+        dist = depth_far_plane
         color = wp.vec3(0.0, 0.0, 0.0)
 
         if wp.mesh_query_ray(mesh, ro, rd, far_plane, t, u, v, sign, n, f):
-            dist = t
-            mesh_obj = wp.mesh_get(mesh)
-            env_vertex_offset = vertex_color_offsets[env_id]
+            if t < depth_far_plane:
+                dist = t
+            if t <= rgb_far_plane:
+                mesh_obj = wp.mesh_get(mesh)
+                env_vertex_offset = vertex_color_offsets[env_id]
 
-            # Barycentric interpolation of per-vertex color.
-            idx0 = mesh_obj.indices[f * 3 + 0]
-            idx1 = mesh_obj.indices[f * 3 + 1]
-            idx2 = mesh_obj.indices[f * 3 + 2]
-            c0 = vertex_colors[env_vertex_offset + idx0]
-            c1 = vertex_colors[env_vertex_offset + idx1]
-            c2 = vertex_colors[env_vertex_offset + idx2]
+                # Barycentric interpolation of per-vertex color.
+                idx0 = mesh_obj.indices[f * 3 + 0]
+                idx1 = mesh_obj.indices[f * 3 + 1]
+                idx2 = mesh_obj.indices[f * 3 + 2]
+                c0 = vertex_colors[env_vertex_offset + idx0]
+                c1 = vertex_colors[env_vertex_offset + idx1]
+                c2 = vertex_colors[env_vertex_offset + idx2]
 
-            w = 1.0 - u - v
-            albedo = w * c0 + u * c1 + v * c2
+                w = 1.0 - u - v
+                albedo = w * c0 + u * c1 + v * c2
 
-            if enable_lighting != 0:
-                n_hat = wp.normalize(n)
-                l_hat = wp.normalize(light_dir_world)
-                lambert = wp.max(wp.dot(n_hat, l_hat), 0.0)
-                lit = ambient_strength + (1.0 - ambient_strength) * lambert
-                color = lit * albedo
-            else:
-                color = albedo
+                if enable_lighting != 0:
+                    n_hat = wp.normalize(n)
+                    l_hat = wp.normalize(light_dir_world)
+                    lambert = wp.max(wp.dot(n_hat, l_hat), 0.0)
+                    lit = ambient_strength + (1.0 - ambient_strength) * lambert
+                    color = lit * albedo
+                else:
+                    color = albedo
 
         rgb_pixels[env_id, cam_id, y, x] = color
         depth_pixels[env_id, cam_id, y, x] = dist
