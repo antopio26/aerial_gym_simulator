@@ -468,10 +468,8 @@ def configure_runtime_viewer(rl_task, eval_args) -> None:
 _CV_WIN_DCE        = "DCE Navigation | RGB          Depth"
 _CV_WIN_COMPARISON = "DCE vs ViT | DCE: RGB   Depth  |  ViT: RGB   Depth"
 
-# Overlay tint colour (BGR) for "dimmed / not-used" panels
+# Dimming and desaturation for "dimmed / not-used" panels
 _DIM_FACTOR   = 0.35   # multiply pixel values by this to darken
-_DCE_TINT_BGR = np.array([0, 60, 0],  dtype=np.float32)   # green tint on depth (used by DCE)
-_VIT_TINT_BGR = np.array([60, 0, 0],  dtype=np.float32)   # blue tint on RGB  (used by ViT)
 
 
 def _to_bgr_u8(tensor_hw, colormap=None) -> np.ndarray:
@@ -488,20 +486,34 @@ def _rgb_to_bgr_u8(tensor_hwc) -> np.ndarray:
     return cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
 
 
-def _dim_panel(img: np.ndarray, tint: np.ndarray, label: str) -> np.ndarray:
+def _dim_panel(img: np.ndarray, label: str, sat_reduction: float = 0.70) -> np.ndarray:
     """
-    Dim and tint an image to indicate it is the *unused* modality.
+    Dim and desaturate an image to indicate it is the *unused* modality.
     A text label is drawn in the top-left corner.
     """
-    out = (img.astype(np.float32) * _DIM_FACTOR + tint).clip(0, 255).astype(np.uint8)
+    # Convert BGR to HSV to reduce saturation
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV).astype(np.float32)
+    hsv[:, :, 1] *= (1.0 - sat_reduction)
+    desat_img = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+    
+    out = (desat_img.astype(np.float32) * _DIM_FACTOR).clip(0, 255).astype(np.uint8)
     cv2.putText(out, label, (6, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1, cv2.LINE_AA)
     return out
 
 
-def _label_panel(img: np.ndarray, label: str) -> np.ndarray:
+def _label_panel(img: np.ndarray, label: str, custom_text=None, custom_color=(255, 255, 255)) -> np.ndarray:
     """Add a small text label to the top-left of an active (undimmed) panel."""
     out = img.copy()
     cv2.putText(out, label, (6, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+    if custom_text:
+        # Add success/crash text in the center
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 1.0
+        thickness = 2
+        text_size = cv2.getTextSize(custom_text, font, font_scale, thickness)[0]
+        text_x = (out.shape[1] - text_size[0]) // 2
+        text_y = (out.shape[0] + text_size[1]) // 2
+        cv2.putText(out, custom_text, (text_x, text_y), font, font_scale, custom_color, thickness, cv2.LINE_AA)
     return out
 
 
@@ -570,7 +582,7 @@ def update_dce_display(obs_dict) -> None:
     cv2.waitKey(1)
 
 
-def update_comparison_display(obs_dict) -> None:
+def update_comparison_display(obs_dict, statuses=None) -> None:
     """
     2×2 comparison display.
 
@@ -582,22 +594,34 @@ def update_comparison_display(obs_dict) -> None:
       - Left:  ViT RGB    → active (this is what ViT uses)
       - Right: ViT Depth  → dimmed (ViT does not use depth)
     """
+    if statuses is None:
+        statuses = [None, None]
+
     try:
         if cv2.getWindowProperty(_CV_WIN_COMPARISON, cv2.WND_PROP_VISIBLE) < 1:
             return
     except cv2.error:
         return
 
+    def get_status_text_color(status):
+        if status == "SUCCESS": return status, (0, 255, 0)
+        if status == "CRASH": return status, (0, 0, 255)
+        if status == "TIMEOUT": return status, (0, 165, 255)  # Orange
+        return None, (255, 255, 255)
+
+    dce_text, dce_color = get_status_text_color(statuses[0])
+    vit_text, vit_color = get_status_text_color(statuses[1])
+
     # --- DCE drone (env 0) ---
     dce_rgb, dce_depth = _get_rgb_depth(obs_dict, env_id=0)
-    dce_rgb_panel   = _dim_panel(dce_rgb,   _VIT_TINT_BGR, "DCE: RGB (unused)")
-    dce_depth_panel = _label_panel(dce_depth, "DCE: Depth (used)")
+    dce_rgb_panel   = _dim_panel(dce_rgb, "DCE: RGB (unused)")
+    dce_depth_panel = _label_panel(dce_depth, "DCE: Depth (used)", dce_text, dce_color)
     dce_row = np.concatenate([dce_rgb_panel, dce_depth_panel], axis=1)
 
     # --- ViT drone (env 1) ---
     vit_rgb, vit_depth = _get_rgb_depth(obs_dict, env_id=1)
-    vit_rgb_panel   = _label_panel(vit_rgb,     "ViT: RGB (used)")
-    vit_depth_panel = _dim_panel(vit_depth, _DCE_TINT_BGR, "ViT: Depth (unused)")
+    vit_rgb_panel   = _label_panel(vit_rgb, "ViT: RGB (used)", vit_text, vit_color)
+    vit_depth_panel = _dim_panel(vit_depth, "ViT: Depth (unused)")
     vit_row = np.concatenate([vit_rgb_panel, vit_depth_panel], axis=1)
 
     # Stack rows; resize ViT row to match DCE row width if needed
@@ -627,7 +651,7 @@ _GOAL_COLORS = None
 
 
 def draw_debug(rl_task, goal_np, traj_list, cross_half: float = 0.3) -> None:
-    """Draw a red cross at the goal and a fading cyan trajectory trail."""
+    """Draw a red cross at the goal."""
     global _GOAL_VERTS, _GOAL_COLORS
 
     gym, viewer, env_handle = _get_viewer_handles(rl_task)
@@ -645,22 +669,8 @@ def draw_debug(rl_task, goal_np, traj_list, cross_half: float = 0.3) -> None:
     _GOAL_VERTS[1] = [gx, gy - h, gz, gx, gy + h, gz]
     _GOAL_VERTS[2] = [gx, gy, gz - h, gx, gy, gz + h]
 
-    n       = len(traj_list)
-    n_trail = max(n - 1, 0)
-    total   = 3 + n_trail
-    verts   = np.empty((total, 6), dtype=np.float32)
-    colors  = np.empty((total, 3), dtype=np.float32)
-    verts[:3]   = _GOAL_VERTS
-    colors[:3]  = _GOAL_COLORS
-
-    for k in range(n_trail):
-        p0, p1 = traj_list[k], traj_list[k + 1]
-        verts[3 + k]  = [p0[0], p0[1], p0[2], p1[0], p1[1], p1[2]]
-        alpha          = (k + 1) / max(n_trail, 1)
-        colors[3 + k]  = [0.0, alpha, alpha]
-
     gym.clear_lines(viewer)
-    gym.add_lines(viewer, env_handle, total, verts, colors)
+    gym.add_lines(viewer, env_handle, 3, _GOAL_VERTS, _GOAL_COLORS)
 
 
 # ===========================================================================
@@ -887,6 +897,15 @@ def _run_dce_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> None:
     for step_i in range(max_steps):
         obs, rewards, termination, truncation, infos = rl_task.step(command_actions)
 
+        # Early success logic (independent of training env logic)
+        dist = torch.norm(rl_task.target_position - rl_task.obs_dict["robot_position"], dim=1)
+        early_success = (dist < 1.0) & (~termination.bool())
+        truncation = truncation.bool() | early_success.bool()
+        if "successes" not in infos:
+            infos["successes"] = torch.zeros_like(truncation, dtype=torch.bool)
+        if isinstance(infos["successes"], torch.Tensor):
+            infos["successes"] = infos["successes"].bool() | early_success.bool()
+
         if step_i % policy_every == 0:
             obs["obs"] = obs["observations"]
             action = nn_model.get_action(obs)
@@ -924,14 +943,44 @@ def _run_comparison_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> No
     """Main step loop for comparison mode (two parallel drones)."""
     policy_every  = max(1, int(eval_args.policy_every))
     display_every = max(1, int(eval_args.display_every))
-    max_steps     = eval_args.max_episodes * MatterportDCEEvalTaskConfig.episode_len_steps
+    max_ep_steps  = MatterportDCEEvalTaskConfig.episode_len_steps
+
+    # ---------------------------------------------------------
+    # DISABLE AUTO-RESET AND CURRICULUM UPDATES
+    # We want them to wait for each other, so we manage resets manually.
+    if hasattr(rl_task.sim_env, "reset_terminated_and_truncated_envs"):
+        rl_task.sim_env.reset_terminated_and_truncated_envs = lambda: torch.tensor([], dtype=torch.long, device=rl_task.device)
+    if hasattr(rl_task, "check_and_update_curriculum_level"):
+        rl_task.check_and_update_curriculum_level = lambda *args, **kwargs: None
+    # ---------------------------------------------------------
 
     stats    = ComparisonEpisodeStats()
     traj_buf = deque(maxlen=200)   # trajectory for env 0 (DCE drone, shown in 3D viewer)
 
+    def sync_robots_and_goal():
+        rl_task.target_position[1] = rl_task.target_position[0]
+        state_tensor = rl_task.sim_env.global_tensor_dict["robot_state_tensor"]
+        state_tensor[1] = state_tensor[0].clone()
+        # Force state write to sim
+        if hasattr(rl_task.sim_env, "IGE_env") and hasattr(rl_task.sim_env.IGE_env, "write_to_sim"):
+            rl_task.sim_env.IGE_env.write_to_sim()
+            
+        # Optional: manually invoke update_states to ensure derived quantities (Euler angles, etc.) don't lag
+        if hasattr(rl_task.sim_env.robot_manager, "robot") and hasattr(rl_task.sim_env.robot_manager.robot, "update_states"):
+            rl_task.sim_env.robot_manager.robot.update_states()
+
+        for key, tensor in rl_task.obs_dict.items():
+            if isinstance(tensor, torch.Tensor) and tensor.shape[0] == rl_task.num_envs:
+                tensor[1] = tensor[0].clone()
+
     build_comparison_display()
+    
+    # Force initial simulation reset to seed valid robot states before our manual sync
+    rl_task.sim_env.reset_idx(torch.arange(rl_task.num_envs, device=rl_task.device))
     rl_task.reset()
+    
     _regenerate_goal_with_height_tolerance(rl_task, max_dz=float(eval_args.max_goal_spawn_dz))
+    sync_robots_and_goal()
     _log_spawn_goal(rl_task, episode=0)
 
     command_actions = torch.zeros(
@@ -939,8 +988,26 @@ def _run_comparison_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> No
         device=MatterportDCEEvalTaskConfig.device,
     )
 
-    for step_i in range(max_steps):
+    drones_done = torch.zeros(rl_task.num_envs, dtype=torch.bool, device=rl_task.device)
+    drone_statuses = [None] * rl_task.num_envs
+    episode_step = 0
+    step_i = 0
+
+    while stats.episodes < eval_args.max_episodes:
         obs, _, termination, truncation, infos = rl_task.step(command_actions)
+        episode_step += 1
+
+        if episode_step >= max_ep_steps:
+             truncation[:] = True
+
+        # Early success logic (independent of training env logic)
+        dist = torch.norm(rl_task.target_position - rl_task.obs_dict["robot_position"], dim=1)
+        early_success = (dist < 1.0) & (~termination.bool())
+        truncation = truncation.bool() | early_success.bool()
+        if "successes" not in infos:
+            infos["successes"] = torch.zeros_like(truncation, dtype=torch.bool)
+        if isinstance(infos["successes"], torch.Tensor):
+            infos["successes"] = infos["successes"].bool() | early_success.bool()
 
         if step_i % policy_every == 0:
             obs["obs"] = obs["observations"]
@@ -948,7 +1015,11 @@ def _run_comparison_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> No
             action = torch.as_tensor(action, device=command_actions.device).expand(
                 rl_task.num_envs, -1
             )
+            # Retain policy output for display but enforce 0 later for done drones
             command_actions[:] = action
+
+        # Force action to 0 for done drones so they just wait
+        command_actions[drones_done] = 0.0
 
         if step_i % eval_args.vis_every == 0:
             goal_np   = rl_task.target_position[0].cpu().numpy()
@@ -957,22 +1028,55 @@ def _run_comparison_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> No
             draw_debug(rl_task, goal_np, list(traj_buf))
 
         if step_i % display_every == 0:
-            update_comparison_display(rl_task.obs_dict)
+            update_comparison_display(rl_task.obs_dict, drone_statuses)
 
         done = termination | truncation
-        if done.any():
-            _handle_episode_reset(
-                rl_task, nn_model, obs, command_actions,
-                stats, termination, truncation, infos,
-                policy_every, eval_args, traj_buf,
-            )
+        newly_done = done & (~drones_done)
+
+        if newly_done.any():
+            stats.record(newly_done & termination, newly_done & truncation, infos)
+            
+            for d_idx in range(rl_task.num_envs):
+                if newly_done[d_idx]:
+                    succ = bool(infos.get("successes", torch.zeros(rl_task.num_envs))[d_idx])
+                    if termination[d_idx]:
+                        drone_statuses[d_idx] = "CRASH"
+                    elif succ:
+                        drone_statuses[d_idx] = "SUCCESS"
+                    else:
+                        drone_statuses[d_idx] = "TIMEOUT"
+                        
+            if newly_done[0]:
+                logger.warning("Episode %d (DCE/Env0): %s", stats.episodes, drone_statuses[0])
+            if newly_done[1]:
+                logger.warning("Episode %d (ViT/Env1): %s", stats.episodes, drone_statuses[1])
+
+            drones_done |= newly_done
+
+        if drones_done.all():
             if stats.episodes % 10 == 0:
                 stats.log()
-            if stats.episodes >= eval_args.max_episodes:
-                break
+                
+            episode_step = 0
+            drones_done[:] = False
+            drone_statuses = [None] * rl_task.num_envs
+            traj_buf.clear()
+            
+            # Force sim level reset first
+            rl_task.sim_env.reset_idx(torch.arange(rl_task.num_envs, device=rl_task.device))
+            rl_task.reset()
+            
+            nn_model.reset(torch.arange(rl_task.num_envs))
+            _regenerate_goal_with_height_tolerance(rl_task, max_dz=float(eval_args.max_goal_spawn_dz))
+            sync_robots_and_goal()
+            _log_spawn_goal(rl_task, episode=stats.episodes)
+            
+            command_actions[:] = 0.0
+
+        step_i += 1
 
     stats.log()
-    logger.warning("Evaluation complete after %d steps.", step_i + 1)
+    logger.warning("Evaluation complete after %d steps.", step_i)
 
 
 # ===========================================================================
