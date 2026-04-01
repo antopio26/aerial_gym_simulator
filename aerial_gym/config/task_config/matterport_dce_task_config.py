@@ -31,7 +31,7 @@ class MatterportVAETaskConfig(_BaseCfg):
 
     seed            = 42
     sim_name        = "base_sim"
-    env_name        = "matterport_glb_env"
+    env_name        = "matterport_glb_env_no_textures" # lighter weight than full "matterport_glb_env"
     robot_name      = "lmf2"                   # depth-only: no RGB tensor overhead
     controller_name = "lmf2_velocity_control"
     args            = {}
@@ -101,6 +101,7 @@ class MatterportViTTaskConfig(MatterportVAETaskConfig):
         MatterportViTTaskConfig.vit_config.metadata_path = "/path/to/metadata.json"
     """
 
+    env_name        = "matterport_glb_env"   # full env with textures neede by the ViT
     robot_name        = "lmf2_rgb_only"
     dce_pipeline_type = "vit"
 
@@ -122,6 +123,7 @@ class MatterportComparisonTaskConfig(MatterportVAETaskConfig):
     vit_config.model_path and vit_config.metadata_path must be set before task creation.
     """
 
+    env_name        = "matterport_glb_env"  # full env with textures needed by the ViT
     robot_name        = "lmf2_with_shaded_rgbd_camera"
     num_envs          = 2
     headless          = False

@@ -88,6 +88,7 @@ class NavigationTask(BaseTask):
             device=self.device,
             requires_grad=False,
         )
+
         if self.task_config.vae_config.use_vae:
             self.vae_model = VAEImageEncoder(config=self.task_config.vae_config, device=self.device)
         else:
@@ -109,10 +110,6 @@ class NavigationTask(BaseTask):
         self.terminations = self.obs_dict["crashes"]
         self.truncations = self.obs_dict["truncations"]
         self.rewards = torch.zeros(self.truncations.shape[0], device=self.device)
-
-        self.navmesh_goal_sampling_enabled = False
-        self.goal_navmesh_sampler = None
-        self._setup_navmesh_goal_sampling()
 
         self.observation_space = Dict(
             {
@@ -166,26 +163,10 @@ class NavigationTask(BaseTask):
         self.sim_env.delete_env()
 
     def reset(self):
-        self.reset_idx(torch.arange(self.sim_env.num_envs, device=self.device, dtype=torch.long))
+        self.reset_idx(torch.arange(self.sim_env.num_envs))
         return self.get_return_tuple()
 
     def reset_idx(self, env_ids):
-        if not torch.is_tensor(env_ids):
-            env_ids = torch.as_tensor(env_ids, device=self.device, dtype=torch.long)
-        else:
-            env_ids = env_ids.to(device=self.device, dtype=torch.long)
-
-        if len(env_ids) == 0:
-            self.infos = {}
-            return
-
-        if self.navmesh_goal_sampling_enabled:
-            goal_world = self._sample_navmesh_goals(env_ids)
-            if goal_world is not None:
-                self.target_position[env_ids] = goal_world
-                self.infos = {}
-                return
-
         target_ratio = torch_rand_float_tensor(self.target_min_ratio, self.target_max_ratio)
         self.target_position[env_ids] = torch_interpolate_ratio(
             min=self.obs_dict["env_bounds_min"][env_ids],
@@ -195,75 +176,6 @@ class NavigationTask(BaseTask):
         # logger.warning(f"reset envs: {env_ids}")
         self.infos = {}
         return
-
-    def _setup_navmesh_goal_sampling(self):
-        nav_cfg = getattr(self.task_config, "navmesh_sampling", None)
-        if nav_cfg is None or not getattr(nav_cfg, "enable", False):
-            return
-
-        self.goal_navmesh_sampler = getattr(self.sim_env, "navmesh_sampler", None)
-        if self.goal_navmesh_sampler is None or not self.goal_navmesh_sampler.enabled:
-            logger.warning(
-                "Task navmesh goal sampling enabled, but env navmesh sampler is not active. "
-                "Enable navmesh_sampling in env config as well."
-            )
-            return
-
-        self.navmesh_goal_sampling_enabled = True
-        logger.info("Enabled task navmesh goal sampling using env-level navmesh sampler.")
-
-    def _sample_navmesh_goals(self, env_ids):
-        if self.goal_navmesh_sampler is None:
-            return None
-
-        env_ids = env_ids.to(device=self.device, dtype=torch.long)
-
-        nav_cfg = self.task_config.navmesh_sampling
-        goal_h = tuple(getattr(nav_cfg, "goal_height_offset_range", [0.0, 0.0]))
-        goals = self.goal_navmesh_sampler.sample_world_points(
-            env_ids=env_ids,
-            height_offset_range=goal_h,
-        )
-        if goals is None:
-            return None
-
-        min_sep = float(getattr(nav_cfg, "goal_min_separation", 0.0) or 0.0)
-        max_sep_cfg = getattr(nav_cfg, "goal_max_separation", None)
-        max_sep = float(max_sep_cfg) if max_sep_cfg is not None else None
-        max_attempts = int(getattr(nav_cfg, "max_pair_sampling_attempts", 4))
-
-        planar_axes = (0, 1)
-        navmesh_obj = getattr(self.goal_navmesh_sampler, "navmesh", None)
-        if navmesh_obj is not None:
-            navmesh_planar_axes = getattr(navmesh_obj, "planar_axes", None)
-            if navmesh_planar_axes is not None and len(navmesh_planar_axes) == 2:
-                planar_axes = (int(navmesh_planar_axes[0]), int(navmesh_planar_axes[1]))
-
-        if min_sep > 0.0 or max_sep is not None:
-            robot_pos = self.obs_dict["robot_position"][env_ids]
-            for _ in range(max_attempts):
-                planar_dist = torch.norm(
-                    goals[:, [planar_axes[0], planar_axes[1]]]
-                    - robot_pos[:, [planar_axes[0], planar_axes[1]]],
-                    dim=1,
-                )
-                invalid = planar_dist < min_sep
-                if max_sep is not None:
-                    invalid = torch.logical_or(invalid, planar_dist > max_sep)
-                if not torch.any(invalid):
-                    break
-                if invalid.device != env_ids.device:
-                    invalid = invalid.to(env_ids.device)
-                invalid_env_ids = env_ids[invalid]
-                resampled = self.goal_navmesh_sampler.sample_world_points(
-                    env_ids=invalid_env_ids,
-                    height_offset_range=goal_h,
-                )
-                if resampled is None:
-                    break
-                goals[invalid] = resampled
-
-        return goals
 
     def render(self):
         return self.sim_env.render()
@@ -367,17 +279,24 @@ class NavigationTask(BaseTask):
         image_obs = self.obs_dict["depth_range_pixels"].squeeze(1)
 
         if self.task_config.vae_config.use_vae:
-            # The frozen VAE expects depth at 135x240.
-            # Use adaptive min-pooling to preserve near-obstacle structure while resizing.
+            # WARNING if the dimensions are not the expected ones
             if image_obs.shape[-2:] != (135, 240):
-                image_obs = -F.adaptive_max_pool2d(-image_obs.unsqueeze(1), (135, 240)).squeeze(1)
+                logger.warning(
+                    f"Image observation shape: {image_obs.shape}, expected shape: (135, 240)"
+                )
 
-            encode_every_n_steps = max(
-                1, int(getattr(self.task_config.vae_config, "encode_every_n_steps", 1))
-            )
-            # Evaluation can reuse the last latent on intermediate steps to reduce VAE overhead.
-            if (self.num_task_steps - 1) % encode_every_n_steps == 0:
-                self.image_latents[:] = self.vae_model.encode(image_obs)
+            # # The frozen VAE expects depth at 135x240.
+            # # Use adaptive min-pooling to preserve near-obstacle structure while resizing.
+            # if image_obs.shape[-2:] != (135, 240):
+            #     image_obs = -F.adaptive_max_pool2d(-image_obs.unsqueeze(1), (135, 240)).squeeze(1)
+
+            # encode_every_n_steps = max(
+            #     1, int(getattr(self.task_config.vae_config, "encode_every_n_steps", 1))
+            # )
+            # # Evaluation can reuse the last latent on intermediate steps to reduce VAE overhead.
+            # if (self.num_task_steps - 1) % encode_every_n_steps == 0:
+            #     self.image_latents[:] = self.vae_model.encode(image_obs)
+            self.image_latents[:] = self.vae_model.encode(image_obs)
         # # comments to make sure the VAE does as expected
         # decoded_image = self.vae_model.decode(self.image_latents[0].unsqueeze(0))
         # image0 = image_obs[0].cpu().numpy()
