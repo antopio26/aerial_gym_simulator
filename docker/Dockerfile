@@ -65,7 +65,8 @@ RUN conda run -n aerialgym pip3 install \
     trimesh \
     gymnasium \
     rl-games \
-    sample-factory
+    sample-factory \
+    shimmy
 
 # Install a PyTorch3D wheel matching python3.8 + CUDA 11.7 + PyTorch 1.13.1.
 RUN conda run -n aerialgym pip3 install \

@@ -35,7 +35,7 @@ class MatterportVAETaskConfig(_BaseCfg):
     robot_name      = "lmf2"                   # depth-only: no RGB tensor overhead
     controller_name = "lmf2_velocity_control"
     args            = {}
-    num_envs        = 1024
+    num_envs        = 32
     use_warp        = True
     headless        = True
     device          = "cuda:0"

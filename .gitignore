@@ -11,3 +11,5 @@ nn/
 train_dir/
 wandb/
 runs/
+
+matterport_train_dir/

@@ -140,14 +140,22 @@ def parse_eval_args() -> argparse.Namespace:
     p.add_argument(
         "--policy_every",
         type=int,
-        default=2,
-        help="Run policy inference every N physics steps (hold last action in between).",
+        default=None,
+        help=(
+            "Run RL policy every N physics steps (action repeat). "
+            "Overrides task_config.policy_every_n_steps. "
+            "Default: use value from task config."
+        ),
     )
     p.add_argument(
-        "--vae_encode_every",
+        "--perception_every",
         type=int,
-        default=2,
-        help="Encode image latent every N task steps (reuse previous latent in between).",
+        default=None,
+        help=(
+            "Encode image latent every N task steps (reuse previous latent in between). "
+            "Overrides task_config.perception_every_n_steps. "
+            "Default: use value from task config."
+        ),
     )
     p.add_argument(
         "--display_every",
@@ -373,7 +381,7 @@ _CV_WIN_DCE        = "DCE Navigation | RGB          Depth"
 _CV_WIN_COMPARISON = "DCE vs ViT | DCE: RGB   Depth  |  ViT: RGB   Depth"
 
 # Dimming and desaturation for "dimmed / not-used" panels
-_DIM_FACTOR   = 0.35   # multiply pixel values by this to darken
+_DIM_FACTOR   = 0.5   # multiply pixel values by this to darken
 
 
 def _to_bgr_u8(tensor_hw, colormap=None) -> np.ndarray:
@@ -713,24 +721,19 @@ def _log_spawn_goal(rl_task, episode: int) -> None:
 
 def _handle_episode_reset(
     rl_task,
-    nn_model:        NN_Inference_Class,
-    obs:             dict,
-    command_actions: torch.Tensor,
+    nn_model:   NN_Inference_Class,
     stats,
     termination,
     truncation,
     infos,
-    policy_every:    int,
     eval_args,
 ) -> None:
     """
     Called when any environment has terminated or truncated.
-    Updates stats, resets RNN states, optionally runs a fresh policy step,
-    regenerates the goal, and clears the trajectory buffer.
+    Updates stats, resets RNN states, regenerates the goal.
     """
-    done          = termination | truncation
-    reset_ids     = done.nonzero(as_tuple=True)
-    reset_env_ids = done.nonzero(as_tuple=False).squeeze(-1)
+    done      = termination | truncation
+    reset_ids = done.nonzero(as_tuple=True)
 
     stats.record(termination, truncation, infos)
 
@@ -751,22 +754,6 @@ def _handle_episode_reset(
 
     nn_model.reset(reset_ids)
 
-    # When policy inference is throttled, force a fresh action for just-reset envs
-    # so they don't carry a stale command from the previous episode.
-    if policy_every > 1 and reset_env_ids.numel() > 0:
-        rnn_before = nn_model.rnn_states.clone()
-        obs["obs"] = obs["observations"]
-        immediate_action = nn_model.get_action(obs)
-        immediate_action = torch.as_tensor(
-            immediate_action, device=command_actions.device
-        ).expand(rl_task.num_envs, -1)
-        command_actions[reset_env_ids] = immediate_action[reset_env_ids]
-        keep_mask = torch.ones(
-            rl_task.num_envs, dtype=torch.bool, device=command_actions.device
-        )
-        keep_mask[reset_env_ids] = False
-        nn_model.rnn_states[keep_mask] = rnn_before[keep_mask]
-
     _regenerate_goal_with_height_tolerance(
         rl_task, max_dz=float(eval_args.max_goal_spawn_dz)
     )
@@ -785,7 +772,6 @@ def _run_dce_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> None:
       lmf2 / BaseDepthCameraConfig → 135x240, max_range=10m, normalized [0,1]
       VAEPipeline.encode(): min-pool no-op → VAEImageEncoder interp to (270,480) → 64-dim latent
     """
-    policy_every  = max(1, int(eval_args.policy_every))
     display_every = max(1, int(eval_args.display_every))
     max_steps     = eval_args.max_episodes * MatterportVAETaskConfig.episode_len_steps
 
@@ -798,10 +784,11 @@ def _run_dce_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> None:
 
     command_actions = torch.zeros(
         (rl_task.num_envs, rl_task.task_config.action_space_dim),
-        device=MatterportVAETaskConfig.device,
+        device=rl_task.device,
     )
 
     for step_i in range(max_steps):
+        # Task handles action repeat (policy_every_n_steps) and perception cadence internally.
         obs, rewards, termination, truncation, infos = rl_task.step(command_actions)
 
         # Early success logic (independent of training env logic)
@@ -813,13 +800,11 @@ def _run_dce_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> None:
         if isinstance(infos["successes"], torch.Tensor):
             infos["successes"] = infos["successes"].bool() | early_success.bool()
 
-        if step_i % policy_every == 0:
-            obs["obs"] = obs["observations"]
-            action = nn_model.get_action(obs)
-            action = torch.as_tensor(action, device=command_actions.device).expand(
-                rl_task.num_envs, -1
-            )
-            command_actions[:] = action
+        obs["obs"] = obs["observations"]
+        action = nn_model.get_action(obs)
+        command_actions[:] = torch.as_tensor(action, device=command_actions.device).expand(
+            rl_task.num_envs, -1
+        )
 
         if step_i % eval_args.vis_every == 0:
             draw_debug(rl_task, rl_task.target_position[0].cpu().numpy())
@@ -830,9 +815,8 @@ def _run_dce_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> None:
         done = termination | truncation
         if done.any():
             _handle_episode_reset(
-                rl_task, nn_model, obs, command_actions,
-                stats, termination, truncation, infos,
-                policy_every, eval_args,
+                rl_task, nn_model,
+                stats, termination, truncation, infos, eval_args,
             )
             if stats.episodes % 10 == 0:
                 stats.log(label="DCE")
@@ -845,7 +829,6 @@ def _run_dce_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> None:
 
 def _run_comparison_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> None:
     """Main step loop for comparison mode (two parallel drones)."""
-    policy_every  = max(1, int(eval_args.policy_every))
     display_every = max(1, int(eval_args.display_every))
     max_ep_steps  = MatterportVAETaskConfig.episode_len_steps
 
@@ -912,14 +895,12 @@ def _run_comparison_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> No
         if isinstance(infos["successes"], torch.Tensor):
             infos["successes"] = infos["successes"].bool() | early_success.bool()
 
-        if step_i % policy_every == 0:
-            obs["obs"] = obs["observations"]
-            action = nn_model.get_action(obs)
-            action = torch.as_tensor(action, device=command_actions.device).expand(
-                rl_task.num_envs, -1
-            )
-            # Retain policy output for display but enforce 0 later for done drones
-            command_actions[:] = action
+        # Task handles action repeat (policy_every_n_steps) internally.
+        obs["obs"] = obs["observations"]
+        action = nn_model.get_action(obs)
+        command_actions[:] = torch.as_tensor(action, device=command_actions.device).expand(
+            rl_task.num_envs, -1
+        )
 
         # Force action to 0 for done drones so they just wait
         command_actions[drones_done] = 0.0
@@ -985,13 +966,13 @@ def _run_comparison_loop(eval_args, rl_task, nn_model: NN_Inference_Class) -> No
 def run_evaluation(eval_args) -> None:
     pipeline = eval_args.pipeline
 
-    # Apply encode cadence to task configs before environment creation
-    MatterportVAETaskConfig.vae_config.encode_every_n_steps = max(
-        1, int(eval_args.vae_encode_every)
-    )
-    MatterportComparisonTaskConfig.vae_config.encode_every_n_steps = max(
-        1, int(eval_args.vae_encode_every)
-    )
+    # Override task config cadence from CLI args (if provided).
+    # task_config defaults (perception_every_n_steps=2, policy_every_n_steps=2) are used otherwise.
+    for cfg in (MatterportVAETaskConfig, MatterportComparisonTaskConfig):
+        if eval_args.perception_every is not None:
+            cfg.perception_every_n_steps = max(1, int(eval_args.perception_every))
+        if eval_args.policy_every is not None:
+            cfg.policy_every_n_steps = max(1, int(eval_args.policy_every))
 
     # 1. Mutate env + task configs (must happen before task/env creation)
     setup_scene(eval_args)
@@ -999,8 +980,7 @@ def run_evaluation(eval_args) -> None:
     # 2. Build task
     rl_task = make_task(eval_args, pipeline)
 
-    logger.warning("Policy inference frequency: every %d physics steps", eval_args.policy_every)
-    logger.warning("Image encoding frequency:   every %d task steps", eval_args.vae_encode_every)
+    # Cadence is logged by MatterportDCENavigationTask.__init__ with Hz values.
     if MatterportGLBEnvCfg.env.render_viewer_every_n_steps > 1:
         logger.warning(
             "Viewer cadence throttled (viewer_every=%d). Use --viewer_every=1 for fluid interaction.",

@@ -111,3 +111,11 @@ task_registry.register_task(
 
 # from aerial_gym.task.custom_task.custom_task import CustomTask
 # task_registry.register_task("custom_task", CustomTask, custom_task.task_config)
+
+from aerial_gym.examples.dce_rl_navigation.matterport_dce_task import MatterportDCENavigationTask
+from aerial_gym.config.task_config.matterport_dce_task_config import MatterportVAETaskConfig
+task_registry.register_task(
+    "matterport_vae_training_task",
+    MatterportDCENavigationTask,
+    MatterportVAETaskConfig,
+)

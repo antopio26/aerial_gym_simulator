@@ -60,7 +60,6 @@ def make_aerialgym_env(
     _env_config=None,
     render_mode: Optional[str] = None,
 ) -> Env:
-
     return AerialGymVecEnv(task_registry.make_task(task_name=full_task_name), "obs")
 
 
@@ -191,6 +190,23 @@ env_configs = dict(
         with_wandb=False,
         wandb_project="quad",
         wandb_user="mihirkulkarni",
+    ),
+    matterport_vae_training_task=dict(
+        train_for_env_steps=131000000000,
+        encoder_mlp_layers=[256, 128, 64],
+        use_rnn=True,
+        rnn_num_layers=1,
+        rnn_size=64,
+        rnn_type="gru",
+        gamma=0.98,
+        rollout=32,
+        learning_rate=1e-4,
+        lr_schedule_kl_threshold=0.016,
+        batch_size=512,
+        num_epochs=4,
+        max_grad_norm=1.0,
+        num_batches_per_epoch=2,
+        exploration_loss_coeff=0.0,
     ),
 )
 

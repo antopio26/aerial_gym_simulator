@@ -5,3 +5,4 @@ scipy
 numpy==1.23
 matplotlib
 PyYAML
+shimmy>=0.2.1

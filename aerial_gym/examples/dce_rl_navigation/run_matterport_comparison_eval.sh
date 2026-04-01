@@ -42,6 +42,8 @@
 #   VIT_MODEL_PATH         path to vit_adapter_pipeline_HxW.pt  (default: shared_models dir)
 #   VIT_METADATA           path to metadata.json                 (default: shared_models dir)
 #   SHARED_MODELS_DIR      base dir for VIT_MODEL_PATH / VIT_METADATA overrides
+#   POLICY_EVERY           run RL policy every N physics steps (default: 2)
+#   PERCEPTION_EVERY       encode image latent every N task steps (default: POLICY_EVERY)
 # ---------------------------------------------------------------------------
 
 set -euo pipefail
@@ -61,8 +63,8 @@ VIT_METADATA="${VIT_METADATA:-${SHARED_MODELS_DIR}/metadata.json}"
 # --- Timing / rendering ---
 VIEWER_EVERY="${VIEWER_EVERY:-3}"
 DISPLAY_EVERY="${DISPLAY_EVERY:-5}"
-POLICY_EVERY="${POLICY_EVERY:-5}"
-VAE_ENCODE_EVERY="${VAE_ENCODE_EVERY:-${POLICY_EVERY}}"
+POLICY_EVERY="${POLICY_EVERY:-2}"
+PERCEPTION_EVERY="${PERCEPTION_EVERY:-${POLICY_EVERY}}"
 TEXTURE_ATLAS_TILE_SIZE="${TEXTURE_ATLAS_TILE_SIZE:-1024}"
 SCENE_SCALE="${SCENE_SCALE:-1.5}"
 MAX_EPISODES="${MAX_EPISODES:-500}"
@@ -99,7 +101,7 @@ python3 "${SCRIPT_DIR}/eval_matterport_dce.py" \
     --viewer_every="${VIEWER_EVERY}" \
     --display_every="${DISPLAY_EVERY}" \
     --policy_every="${POLICY_EVERY}" \
-    --vae_encode_every="${VAE_ENCODE_EVERY}" \
+    --perception_every="${PERCEPTION_EVERY}" \
     --scene_scale="${SCENE_SCALE}" \
     --texture_atlas_tile_size="${TEXTURE_ATLAS_TILE_SIZE}" \
     --max_episodes="${MAX_EPISODES}" \

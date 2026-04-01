@@ -4,7 +4,7 @@ class MatterportGLBEnvCfg:
     # but does NOT affect the robot size or dynamics.
     # This multiplies static_scene.scale, so the effective mesh scale is
     #   static_scene.scale * scene_scale.
-    scene_scale = 1.0
+    scene_scale = 1.5
 
     class env:
         num_envs = 1
@@ -37,7 +37,7 @@ class MatterportGLBEnvCfg:
 
     class static_scene:
         enable = True
-        file = "resources/envs/00800-TEEsavR23oF/TEEsavR23oF.glb"
+        file = "resources/envs/00807-rsggHU7g7dh/rsggHU7g7dh.glb"
         collision_file = None
         scale = 1.0
         translation = [5.0, -5.0, 0.0]
