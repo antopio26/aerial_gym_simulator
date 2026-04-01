@@ -60,6 +60,7 @@ def make_aerialgym_env(
     _env_config=None,
     render_mode: Optional[str] = None,
 ) -> Env:
+
     return AerialGymVecEnv(task_registry.make_task(task_name=full_task_name), "obs")
 
 
