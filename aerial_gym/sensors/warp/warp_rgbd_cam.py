@@ -1,14 +1,14 @@
 import warp as wp
 import math
-from aerial_gym.sensors.warp.warp_kernels.shaded_rgbd_camera_kernels import ShadedRGBCameraWarpKernels
+from aerial_gym.sensors.warp.warp_kernels.rgbd_camera_kernels import RGBCameraWarpKernels
 
 from aerial_gym.utils.logging import CustomLogger, logging
 
-logger = CustomLogger("WarpShadedRGBCam")
+logger = CustomLogger("WarpRGBCam")
 logger.setLoggerLevel(logging.INFO)
 
 
-class WarpShadedRGBCam:
+class WarpRGBCam:
     def __init__(
         self,
         num_envs,
@@ -95,7 +95,7 @@ class WarpShadedRGBCam:
 
         if self.cfg.enable_textures and self.vertex_uvs is not None and self.texture_image is not None:
             wp.launch(
-                kernel=ShadedRGBCameraWarpKernels.draw_textured_rgbd_kernel,
+                kernel=RGBCameraWarpKernels.draw_textured_rgbd_kernel,
                 dim=(self.num_envs, self.num_sensors, self.width, self.height),
                 inputs=[
                     self.mesh_ids_array,
@@ -123,7 +123,7 @@ class WarpShadedRGBCam:
             )
         else:
             wp.launch(
-                kernel=ShadedRGBCameraWarpKernels.draw_shaded_rgbd_kernel,
+                kernel=RGBCameraWarpKernels.draw_rgbd_kernel,
                 dim=(self.num_envs, self.num_sensors, self.width, self.height),
                 inputs=[
                     self.mesh_ids_array,

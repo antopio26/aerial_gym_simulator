@@ -66,7 +66,7 @@ navmesh:
 
 robots:
   depth_only: base_quadrotor_with_camera
-  shaded_rgbd: base_quadrotor_with_shaded_rgbd_camera
+  rgbd: base_quadrotor_with_rgbd_camera
 
 output:
   report_path: aerial_gym/benchmark/stored_data/matterport_depth_vs_rgbd_benchmark.json

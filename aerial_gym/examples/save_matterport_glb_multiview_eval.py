@@ -10,8 +10,8 @@ from aerial_gym.benchmark.matterport_spawn_helpers import (
     resolve_scene_bundle_from_env,
 )
 from aerial_gym.config.env_config.matterport_glb_env import MatterportGLBEnvCfg
-from aerial_gym.config.sensor_config.camera_config.shaded_rgbd_camera_config import (
-    ShadedRGBDCameraConfig,
+from aerial_gym.config.sensor_config.camera_config.rgbd_camera_config import (
+    RGBDCameraConfig,
 )
 from aerial_gym.sim.sim_builder import SimBuilder
 from aerial_gym.utils.logging import CustomLogger
@@ -114,21 +114,21 @@ if __name__ == "__main__":
 
     enable_lighting = os.getenv("AERIAL_GYM_TEXTURE_LIGHTING", "0") == "1"
     debug_uv_checker = os.getenv("AERIAL_GYM_DEBUG_UV_CHECKER", "0") == "1"
-    ShadedRGBDCameraConfig.enable_lighting = enable_lighting
-    ShadedRGBDCameraConfig.debug_uv_checker = debug_uv_checker
-    ShadedRGBDCameraConfig.max_range = float(os.getenv("AERIAL_GYM_EVAL_MAX_RANGE", "80.0"))
-    ShadedRGBDCameraConfig.min_range = float(os.getenv("AERIAL_GYM_EVAL_MIN_RANGE", "0.2"))
+    RGBDCameraConfig.enable_lighting = enable_lighting
+    RGBDCameraConfig.debug_uv_checker = debug_uv_checker
+    RGBDCameraConfig.max_range = float(os.getenv("AERIAL_GYM_EVAL_MAX_RANGE", "80.0"))
+    RGBDCameraConfig.min_range = float(os.getenv("AERIAL_GYM_EVAL_MIN_RANGE", "0.2"))
     if debug_uv_checker:
         mode_name = "uv_checker"
     else:
         mode_name = "lit" if enable_lighting else "texture_only"
-    ShadedRGBDCameraConfig.width = int(os.getenv("AERIAL_GYM_EVAL_WIDTH", "640"))
-    ShadedRGBDCameraConfig.height = int(os.getenv("AERIAL_GYM_EVAL_HEIGHT", "360"))
+    RGBDCameraConfig.width = int(os.getenv("AERIAL_GYM_EVAL_WIDTH", "640"))
+    RGBDCameraConfig.height = int(os.getenv("AERIAL_GYM_EVAL_HEIGHT", "360"))
 
     env_manager = SimBuilder().build_env(
         sim_name="base_sim",
         env_name="matterport_glb_env",
-        robot_name="base_quadrotor_with_shaded_rgbd_camera",
+        robot_name="base_quadrotor_with_rgbd_camera",
         controller_name="lee_velocity_control",
         args=None,
         device="cuda:0",

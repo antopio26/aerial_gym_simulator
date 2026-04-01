@@ -5,8 +5,8 @@ from aerial_gym import AERIAL_GYM_DIRECTORY
 from aerial_gym.config.sensor_config.camera_config.base_depth_camera_config import (
     BaseDepthCameraConfig,
 )
-from aerial_gym.config.sensor_config.camera_config.shaded_rgbd_camera_config import (
-    ShadedRGBDCameraConfig,
+from aerial_gym.config.sensor_config.camera_config.rgbd_camera_config import (
+    RGBDCameraConfig,
 )
 from aerial_gym.config.sensor_config.lidar_config.base_lidar_config import (
     BaseLidarConfig,
@@ -182,7 +182,7 @@ class LMF2Cfg:
             use_discrete_approximation = True  # use discrete approximation for motor dynamics
 
 
-class LMF2WithShadedRGBDCameraCfg(LMF2Cfg):
+class LMF2WithRGBDCameraCfg(LMF2Cfg):
     class sensor_config(LMF2Cfg.sensor_config):
         enable_camera = True
-        camera_config = ShadedRGBDCameraConfig
+        camera_config = RGBDCameraConfig

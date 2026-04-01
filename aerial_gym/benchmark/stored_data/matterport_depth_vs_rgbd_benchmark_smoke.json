@@ -71,9 +71,9 @@
       "gif_path": null
     }
   ],
-  "shaded_rgbd": [
+  "rgbd": [
     {
-      "robot_name": "base_quadrotor_with_shaded_rgbd_camera",
+      "robot_name": "base_quadrotor_with_rgbd_camera",
       "controller_name": "lee_position_control",
       "num_envs": 1,
       "elapsed_s": 0.17981410026550293,
@@ -90,7 +90,7 @@
       "gif_path": null
     },
     {
-      "robot_name": "base_quadrotor_with_shaded_rgbd_camera",
+      "robot_name": "base_quadrotor_with_rgbd_camera",
       "controller_name": "lee_position_control",
       "num_envs": 2,
       "elapsed_s": 0.223130464553833,

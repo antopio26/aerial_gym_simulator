@@ -117,14 +117,14 @@ class MatterportComparisonTaskConfig(MatterportVAETaskConfig):
     """
     Two-env side-by-side comparison: env 0 uses VAE (depth), env 1 uses ViT (RGB).
 
-    Robot: lmf2_with_shaded_rgbd_camera provides both depth and RGB channels,
+    Robot: lmf2_with_rgbd_camera provides both depth and RGB channels,
     which are needed simultaneously for the comparison.
 
     vit_config.model_path and vit_config.metadata_path must be set before task creation.
     """
 
     env_name        = "matterport_glb_env"  # full env with textures needed by the ViT
-    robot_name        = "lmf2_with_shaded_rgbd_camera"
+    robot_name        = "lmf2_with_rgbd_camera"
     num_envs          = 2
     headless          = False
     dce_pipeline_type = "comparison"

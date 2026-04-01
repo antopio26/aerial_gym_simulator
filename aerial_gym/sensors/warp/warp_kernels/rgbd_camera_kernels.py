@@ -1,7 +1,7 @@
 import warp as wp
 
 
-class ShadedRGBCameraWarpKernels:
+class RGBCameraWarpKernels:
     @staticmethod
     @wp.kernel
     def draw_textured_rgbd_kernel(
@@ -117,7 +117,7 @@ class ShadedRGBCameraWarpKernels:
 
     @staticmethod
     @wp.kernel
-    def draw_shaded_rgbd_kernel(
+    def draw_rgbd_kernel(
         mesh_ids: wp.array(dtype=wp.uint64),
         cam_poss: wp.array(dtype=wp.vec3, ndim=2),
         cam_quats: wp.array(dtype=wp.quat, ndim=2),

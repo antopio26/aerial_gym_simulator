@@ -17,8 +17,8 @@ from aerial_gym.config.sensor_config.camera_config.base_normal_faceID_camera_con
 from aerial_gym.config.sensor_config.camera_config.stereo_camera_config import (
     StereoCameraConfig,
 )
-from aerial_gym.config.sensor_config.camera_config.shaded_rgbd_camera_config import (
-    ShadedRGBDCameraConfig,
+from aerial_gym.config.sensor_config.camera_config.rgbd_camera_config import (
+    RGBDCameraConfig,
 )
 
 
@@ -230,8 +230,8 @@ class BaseQuadWithStereoCameraCfg(BaseQuadCfg):
         enable_camera = True
         camera_config = StereoCameraConfig
 
-class BaseQuadWithShadedRGBDCameraCfg(BaseQuadCfg):
+class BaseQuadWithRGBDCameraCfg(BaseQuadCfg):
     class sensor_config(BaseQuadCfg.sensor_config):
         enable_camera = True
-        camera_config = ShadedRGBDCameraConfig
+        camera_config = RGBDCameraConfig
 

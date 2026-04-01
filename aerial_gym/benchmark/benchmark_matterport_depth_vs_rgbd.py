@@ -27,8 +27,8 @@ from aerial_gym.config.env_config.matterport_glb_env import MatterportGLBEnvCfg
 from aerial_gym.config.sensor_config.camera_config.base_depth_camera_config import (
     BaseDepthCameraConfig,
 )
-from aerial_gym.config.sensor_config.camera_config.shaded_rgbd_camera_config import (
-    ShadedRGBDCameraConfig,
+from aerial_gym.config.sensor_config.camera_config.rgbd_camera_config import (
+    RGBDCameraConfig,
 )
 from aerial_gym.sim.sim_builder import SimBuilder
 from aerial_gym.utils.logging import CustomLogger
@@ -85,7 +85,7 @@ def _default_config() -> Dict[str, Any]:
         },
         "robots": {
             "depth_only": "base_quadrotor_with_camera",
-            "shaded_rgbd": "base_quadrotor_with_shaded_rgbd_camera",
+            "rgbd": "base_quadrotor_with_rgbd_camera",
         },
         "output": {
             "report_path": "aerial_gym/benchmark/stored_data/matterport_depth_vs_rgbd_benchmark.json",
@@ -115,11 +115,11 @@ def _configure_camera_classes(width: int, height: int, max_range: float, enable_
     BaseDepthCameraConfig.segmentation_camera = False
     BaseDepthCameraConfig.calculate_depth = True
 
-    ShadedRGBDCameraConfig.width = width
-    ShadedRGBDCameraConfig.height = height
-    ShadedRGBDCameraConfig.max_range = max_range
-    ShadedRGBDCameraConfig.enable_lighting = enable_lighting
-    ShadedRGBDCameraConfig.debug_uv_checker = False
+    RGBDCameraConfig.width = width
+    RGBDCameraConfig.height = height
+    RGBDCameraConfig.max_range = max_range
+    RGBDCameraConfig.enable_lighting = enable_lighting
+    RGBDCameraConfig.debug_uv_checker = False
 
 
 def _run_case(
@@ -371,7 +371,7 @@ def main():
         default=os.path.join(os.path.dirname(__file__), "configs", "matterport_depth_vs_rgbd.yaml"),
         help="Path to YAML benchmark config.",
     )
-    parser.add_argument("--child-case", choices=["depth_only", "shaded_rgbd"], default=None)
+    parser.add_argument("--child-case", choices=["depth_only", "rgbd"], default=None)
     parser.add_argument("--num-envs", type=int, default=None)
     args = parser.parse_args()
 
@@ -416,7 +416,7 @@ def main():
         depth_rows.append(_run_case_subprocess(args.config, "depth_only", int(n)))
 
         logger.warning("Shaded RGBD case: num_envs=%d", n)
-        rgbd_rows.append(_run_case_subprocess(args.config, "shaded_rgbd", int(n)))
+        rgbd_rows.append(_run_case_subprocess(args.config, "rgbd", int(n)))
 
     _print_table(depth_rows, rgbd_rows)
 
@@ -445,7 +445,7 @@ def main():
             "navmesh_settings": navmesh_settings,
         },
         "depth_only": depth_rows,
-        "shaded_rgbd": rgbd_rows,
+        "rgbd": rgbd_rows,
     }
 
     report_path = str(config.get("output", {}).get("report_path", "")).strip()

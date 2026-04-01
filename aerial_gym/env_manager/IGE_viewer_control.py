@@ -283,8 +283,7 @@ class IGEViewerControl:
         Draw the viewer.
         """
         self.process_events_only()
-        if self.viewer is None:
-            return
+        
         if self.enable_viewer_sync:
             if self.camera_follow:
                 self.set_camera_lookat()
@@ -301,6 +300,7 @@ class IGEViewerControl:
         """
         if self.viewer is None:
             return
+
         if self.gym.query_viewer_has_closed(self.viewer):
             logger.critical("Viewer has been closed. Exiting simulation.")
             sys.exit()

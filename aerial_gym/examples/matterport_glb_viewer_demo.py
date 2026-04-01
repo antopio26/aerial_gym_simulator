@@ -15,8 +15,8 @@ from aerial_gym.sim.sim_builder import SimBuilder
 from aerial_gym.utils.logging import CustomLogger
 import torch
 
-from aerial_gym.config.sensor_config.camera_config.shaded_rgbd_camera_config import (
-    ShadedRGBDCameraConfig,
+from aerial_gym.config.sensor_config.camera_config.rgbd_camera_config import (
+    RGBDCameraConfig,
 )
 
 
@@ -50,8 +50,8 @@ if __name__ == "__main__":
     apply_navmesh_config_from_env(
         MatterportGLBEnvCfg, prefix=prefix, scene_bundle=scene_bundle, logger=logger,
     )
-    ShadedRGBDCameraConfig.enable_lighting = enable_lighting
-    ShadedRGBDCameraConfig.debug_uv_checker = debug_uv_checker
+    RGBDCameraConfig.enable_lighting = enable_lighting
+    RGBDCameraConfig.debug_uv_checker = debug_uv_checker
     if debug_uv_checker:
         mode_name = "uv_checker"
     else:
@@ -66,7 +66,7 @@ if __name__ == "__main__":
     env_manager = SimBuilder().build_env(
         sim_name="base_sim",
         env_name="matterport_glb_env",
-        robot_name="base_quadrotor_with_shaded_rgbd_camera",
+        robot_name="base_quadrotor_with_rgbd_camera",
         controller_name=controller_name,
         args=None,
         device="cuda:0",

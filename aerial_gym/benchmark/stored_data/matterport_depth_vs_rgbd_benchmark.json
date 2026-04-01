@@ -125,9 +125,9 @@
       "gif_path": "aerial_gym/benchmark/stored_data/benchmark_gifs/benchmark_base_quadrotor_with_camera_16envs.gif"
     }
   ],
-  "shaded_rgbd": [
+  "rgbd": [
     {
-      "robot_name": "base_quadrotor_with_shaded_rgbd_camera",
+      "robot_name": "base_quadrotor_with_rgbd_camera",
       "controller_name": "lee_position_control",
       "num_envs": 1,
       "elapsed_s": 1.463843584060669,
@@ -141,10 +141,10 @@
       "rendered_fps_per_env": 51.23498221849065,
       "rendered_real_time_speedup": 2.049399288739626,
       "rendered_real_time_speedup_per_env": 2.049399288739626,
-      "gif_path": "aerial_gym/benchmark/stored_data/benchmark_gifs/benchmark_base_quadrotor_with_shaded_rgbd_camera_1envs.gif"
+      "gif_path": "aerial_gym/benchmark/stored_data/benchmark_gifs/benchmark_base_quadrotor_with_rgbd_camera_1envs.gif"
     },
     {
-      "robot_name": "base_quadrotor_with_shaded_rgbd_camera",
+      "robot_name": "base_quadrotor_with_rgbd_camera",
       "controller_name": "lee_position_control",
       "num_envs": 2,
       "elapsed_s": 2.589059829711914,
@@ -158,10 +158,10 @@
       "rendered_fps_per_env": 28.968044360854066,
       "rendered_real_time_speedup": 2.3174435488683254,
       "rendered_real_time_speedup_per_env": 1.1587217744341627,
-      "gif_path": "aerial_gym/benchmark/stored_data/benchmark_gifs/benchmark_base_quadrotor_with_shaded_rgbd_camera_2envs.gif"
+      "gif_path": "aerial_gym/benchmark/stored_data/benchmark_gifs/benchmark_base_quadrotor_with_rgbd_camera_2envs.gif"
     },
     {
-      "robot_name": "base_quadrotor_with_shaded_rgbd_camera",
+      "robot_name": "base_quadrotor_with_rgbd_camera",
       "controller_name": "lee_position_control",
       "num_envs": 4,
       "elapsed_s": 1.921773910522461,
@@ -175,10 +175,10 @@
       "rendered_fps_per_env": 39.02644301150399,
       "rendered_real_time_speedup": 6.24423088184064,
       "rendered_real_time_speedup_per_env": 1.56105772046016,
-      "gif_path": "aerial_gym/benchmark/stored_data/benchmark_gifs/benchmark_base_quadrotor_with_shaded_rgbd_camera_4envs.gif"
+      "gif_path": "aerial_gym/benchmark/stored_data/benchmark_gifs/benchmark_base_quadrotor_with_rgbd_camera_4envs.gif"
     },
     {
-      "robot_name": "base_quadrotor_with_shaded_rgbd_camera",
+      "robot_name": "base_quadrotor_with_rgbd_camera",
       "controller_name": "lee_position_control",
       "num_envs": 8,
       "elapsed_s": 2.4985361099243164,
@@ -192,10 +192,10 @@
       "rendered_fps_per_env": 30.01757697321086,
       "rendered_real_time_speedup": 9.605624631427476,
       "rendered_real_time_speedup_per_env": 1.2007030789284345,
-      "gif_path": "aerial_gym/benchmark/stored_data/benchmark_gifs/benchmark_base_quadrotor_with_shaded_rgbd_camera_8envs.gif"
+      "gif_path": "aerial_gym/benchmark/stored_data/benchmark_gifs/benchmark_base_quadrotor_with_rgbd_camera_8envs.gif"
     },
     {
-      "robot_name": "base_quadrotor_with_shaded_rgbd_camera",
+      "robot_name": "base_quadrotor_with_rgbd_camera",
       "controller_name": "lee_position_control",
       "num_envs": 16,
       "elapsed_s": 4.414792537689209,
@@ -209,7 +209,7 @@
       "rendered_fps_per_env": 16.988340756609258,
       "rendered_real_time_speedup": 10.872538084229925,
       "rendered_real_time_speedup_per_env": 0.6795336302643703,
-      "gif_path": "aerial_gym/benchmark/stored_data/benchmark_gifs/benchmark_base_quadrotor_with_shaded_rgbd_camera_16envs.gif"
+      "gif_path": "aerial_gym/benchmark/stored_data/benchmark_gifs/benchmark_base_quadrotor_with_rgbd_camera_16envs.gif"
     }
   ]
 }

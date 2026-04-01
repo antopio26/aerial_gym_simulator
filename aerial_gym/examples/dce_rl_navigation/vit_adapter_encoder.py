@@ -7,7 +7,7 @@ replacement for image-latent encoding in NavigationTask subclasses.
 The TorchScript model is produced by sampl_geometic_head/export/export_vit_adapter.py.
 It expects raw float [0, 1] RGB images; ImageNet normalisation is baked into the model.
 
-No resize is needed at inference time: the sim camera (lmf2_with_shaded_rgbd_camera)
+No resize is needed at inference time: the sim camera (lmf2_with_rgbd_camera)
 outputs H=240 x W=320 images, which matches the training resolution of the adapter.
 """
 

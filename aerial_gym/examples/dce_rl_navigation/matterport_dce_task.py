@@ -22,7 +22,7 @@ VAE DEPTH PIPELINE — provenance and equivalence with dce_nn_navigation.py:
       unsqueeze(1)        (N,135,240) → (N,1,135,240)
       interpolate nearest              → (N,1,270,480)  [vae_config.image_res]
       VAE encode                       → (N,64) sampled latent
-  Eval uses lmf2_with_shaded_rgbd_camera (ShadedRGBDCameraConfig):
+  Eval uses lmf2_with_rgbd_camera (RGBDCameraConfig):
     Camera: 240x320, depth_max_range=10m — same normalization
     VAEPipeline.encode(): min-pool (240,320)→(135,240), then same VAEImageEncoder path
   Both cameras use max_range=10m → identical normalized depth values → pipelines ARE equivalent.

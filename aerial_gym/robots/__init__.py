@@ -8,7 +8,7 @@ from aerial_gym.config.robot_config.base_quad_root_link_control_config import (
 )
 
 from aerial_gym.config.robot_config.lmf1_config import LMF1Cfg
-from aerial_gym.config.robot_config.lmf2_config import LMF2Cfg, LMF2WithShadedRGBDCameraCfg
+from aerial_gym.config.robot_config.lmf2_config import LMF2Cfg, LMF2WithRGBDCameraCfg
 from aerial_gym.config.robot_config.lmf2_rgb_only_config import LMF2RGBOnlyCfg
 from aerial_gym.config.robot_config.x500_config import X500Cfg
 from aerial_gym.config.robot_config.morphy_config import MorphyCfg, MorphyFixedBaseCfg
@@ -47,7 +47,7 @@ robot_registry.register("snakey6", BaseReconfigurable, Snakey6Cfg)
 robot_registry.register("base_rov", BaseROV, BaseROVCfg)
 robot_registry.register("lmf1", BaseMultirotor, LMF1Cfg)
 robot_registry.register("lmf2", BaseMultirotor, LMF2Cfg)
-robot_registry.register("lmf2_with_shaded_rgbd_camera", BaseMultirotor, LMF2WithShadedRGBDCameraCfg)
+robot_registry.register("lmf2_with_rgbd_camera", BaseMultirotor, LMF2WithRGBDCameraCfg)
 robot_registry.register("lmf2_rgb_only", BaseMultirotor, LMF2RGBOnlyCfg)
 robot_registry.register("x500", BaseMultirotor, X500Cfg)
 
@@ -60,7 +60,7 @@ robot_registry.register("base_quadrotor_with_camera_imu", BaseMultirotor, BaseQu
 robot_registry.register("base_quadrotor_with_lidar", BaseMultirotor, BaseQuadWithLidarCfg)
 robot_registry.register("base_quadrotor_with_faceid_normal_camera", BaseMultirotor, BaseQuadWithFaceIDNormalCameraCfg)
 robot_registry.register("base_quadrotor_with_stereo_camera", BaseMultirotor, BaseQuadWithStereoCameraCfg)
-robot_registry.register("base_quadrotor_with_shaded_rgbd_camera", BaseMultirotor, BaseQuadWithShadedRGBDCameraCfg)
+robot_registry.register("base_quadrotor_with_rgbd_camera", BaseMultirotor, BaseQuadWithRGBDCameraCfg)
 
 robot_registry.register("tinyprop", BaseMultirotor, TinyPropCfg)
 

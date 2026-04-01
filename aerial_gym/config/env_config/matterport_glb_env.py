@@ -40,7 +40,7 @@ class MatterportGLBEnvCfg:
         file = "resources/envs/00807-rsggHU7g7dh/rsggHU7g7dh.glb"
         collision_file = None
         scale = 1.0
-        translation = [5.0, -5.0, 0.0]
+        translation = [0.0, 0.0, 0.0]
         enable_texture_rendering = True
         # Resolution per unique texture tile in the deduplicated atlas.
         # 41 unique tiles at 2048px → 7x6 atlas ~14336x12288 (~2 GB float32 GPU).
@@ -53,7 +53,7 @@ class MatterportGLBEnvCfg:
         segmentation_id = 0
 
     class navmesh_sampling:
-        enable = False
+        enable = True
         # Optional explicit navmesh path. If None, it is auto-resolved from static_scene.file.
         navmesh_file = None
 

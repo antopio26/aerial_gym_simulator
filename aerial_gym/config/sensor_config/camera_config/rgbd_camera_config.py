@@ -1,9 +1,9 @@
 from aerial_gym.config.sensor_config.camera_config.base_depth_camera_config import BaseDepthCameraConfig
 
 
-class ShadedRGBDCameraConfig(BaseDepthCameraConfig):
+class RGBDCameraConfig(BaseDepthCameraConfig):
     # Distinct sensor type so existing camera paths remain untouched.
-    sensor_type = "shaded_rgbd_camera"
+    sensor_type = "rgbd_camera"
 
     # Match base depth camera geometry as closely as possible.
     height = 240
