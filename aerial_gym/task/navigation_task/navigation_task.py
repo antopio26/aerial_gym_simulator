@@ -127,7 +127,12 @@ class NavigationTask(BaseTask):
                 # ),
             }
         )
-        self.action_space = Box(low=-1.0, high=1.0, shape=(4,), dtype=np.float32)
+        self.action_space = Box(
+            low=-1.0,
+            high=1.0,
+            shape=(self.task_config.action_space_dim,),
+            dtype=np.float32,
+        )
         self.action_transformation_function = self.task_config.action_transformation_function
 
         self.num_envs = self.sim_env.num_envs

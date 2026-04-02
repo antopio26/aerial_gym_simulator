@@ -32,22 +32,46 @@ class AerialGymVecEnv(gym.Env):
         self.env = aerialgym_env
         self.num_agents = self.env.num_envs
         self.action_space = convert_space(self.env.action_space)
+        self.obs_key = obs_key
 
         # isaacgym_examples environments actually return dicts
         if obs_key == "obs" or obs_key == "observations":
-            self.observation_space = gym.spaces.Dict(convert_space(self.env.observation_space))
+            sf_obs_space = dict(convert_space(self.env.observation_space))
+            if obs_key not in sf_obs_space:
+                # Backward compatibility: allow loading older checkpoints that used "obs"
+                # when the current env exposes "observations" (and vice-versa).
+                if obs_key == "obs" and "observations" in sf_obs_space:
+                    sf_obs_space["obs"] = sf_obs_space.pop("observations")
+                elif obs_key == "observations" and "obs" in sf_obs_space:
+                    sf_obs_space["observations"] = sf_obs_space.pop("obs")
+            self.observation_space = gym.spaces.Dict(sf_obs_space)
         else:
             raise ValueError(f"Unknown observation key: {obs_key}")
 
         self._truncated: Tensor = torch.zeros(self.num_agents, dtype=torch.bool)
 
+    def _map_obs_key(self, obs: Dict[str, Tensor]) -> Dict[str, Tensor]:
+        if self.obs_key in obs:
+            return obs
+        if self.obs_key == "obs" and "observations" in obs:
+            mapped = dict(obs)
+            mapped["obs"] = mapped.pop("observations")
+            return mapped
+        if self.obs_key == "observations" and "obs" in obs:
+            mapped = dict(obs)
+            mapped["observations"] = mapped.pop("obs")
+            return mapped
+        return obs
+
     def reset(self, *args, **kwargs) -> Tuple[Dict[str, Tensor], Dict]:
         # some IGE envs return all zeros on the first timestep, but this is probably okay
         obs, rew, terminated, truncated, infos = self.env.reset()
+        obs = self._map_obs_key(obs)
         return obs, infos
 
     def step(self, action):
         obs, rew, terminated, truncated, infos = self.env.step(action)
+        obs = self._map_obs_key(obs)
         
         # Convert Isaac Gym's single dictionary into a list of dictionaries
         sf_infos = [{} for _ in range(self.num_agents)]
@@ -73,7 +97,7 @@ def make_aerialgym_env(
     # Check if we already built the environment. If not, build it.
     if not hasattr(make_aerialgym_env, "env_instance"):
         make_aerialgym_env.env_instance = AerialGymVecEnv(
-            task_registry.make_task(task_name=full_task_name), "obs"
+            task_registry.make_task(task_name=full_task_name), cfg.obs_key
         )
         
     # Return the cached instance so Isaac Gym doesn't double-instantiate
@@ -161,7 +185,7 @@ def override_default_params_func(env, parser):
         async_rl=True,
         use_env_info_cache=False,  # speeds up startup
         kl_loss_coeff=0.1,
-        restart_behavior="override",
+        restart_behavior="overwrite",
     )
 
     # override default config parameters for specific envs
@@ -210,7 +234,7 @@ env_configs = dict(
     ),
     matterport_vae_training_task=dict(
         train_for_env_steps=131000000000,
-        encoder_mlp_layers=[256, 128, 64],
+        encoder_mlp_layers=[512, 256, 64],
         use_rnn=True,
         rnn_num_layers=1,
         rnn_size=64,

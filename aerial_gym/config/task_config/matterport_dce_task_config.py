@@ -35,9 +35,9 @@ class MatterportVAETaskConfig(_BaseCfg):
     robot_name      = "lmf2"                   # depth-only: no RGB tensor overhead
     controller_name = "lmf2_velocity_control"
     args            = {}
-    num_envs        = 2
+    num_envs        = 32
     use_warp        = True
-    headless        = False
+    headless        = True
     device          = "cuda:0"
 
     observation_space_dim            = 81       # 17 state + 64 image latent
@@ -60,7 +60,7 @@ class MatterportVAETaskConfig(_BaseCfg):
 
     class navmesh_sampling:
         enable                     = True
-        edge_padding               = 1.5
+        edge_padding               = 0.6
         spawn_height_offset_range  = [0.8, 1.8]
         goal_height_offset_range   = [0.8, 1.8]
         goal_min_separation        = 2.0
@@ -93,16 +93,20 @@ class MatterportViTTaskConfig(MatterportVAETaskConfig):
     """
     Matterport scene navigation with the ViT+adapter RGB pipeline.
 
-    Robot: lmf2_rgb_only (RGBOnlyCameraConfig, 240x320, calculate_depth=False).
-    Only rgb_pixels are rendered; depth_range_pixels tensor is not populated.
+    Robot: lmf2_with_rgbd_camera (RGBDCameraConfig, 240x320, depth enabled).
+    Both rgb_pixels and depth_range_pixels are rendered.  The depth tensor is
+    required by NavigationTask.post_image_reward_addition() which computes a
+    proximity reward from minimum pixel depth; switching to depth-disabled robot
+    would silently zero out that reward term.  Once post_image_reward_addition is
+    decoupled from depth, this can be switched back to lmf2_rgb_only.
 
     vit_config.model_path and vit_config.metadata_path must be set before task creation:
         MatterportViTTaskConfig.vit_config.model_path    = "/path/to/model.pt"
         MatterportViTTaskConfig.vit_config.metadata_path = "/path/to/metadata.json"
     """
 
-    env_name        = "matterport_glb_env"   # full env with textures neede by the ViT
-    robot_name        = "lmf2_rgb_only"
+    env_name        = "matterport_glb_env"   # full env with textures needed by the ViT
+    robot_name        = "lmf2_with_rgbd_camera"
     dce_pipeline_type = "vit"
 
     class vae_config(MatterportVAETaskConfig.vae_config):

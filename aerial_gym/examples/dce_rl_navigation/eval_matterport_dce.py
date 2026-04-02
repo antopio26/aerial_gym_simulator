@@ -112,8 +112,8 @@ def parse_eval_args() -> argparse.Namespace:
     p.add_argument(
         "--scene_scale",
         type=float,
-        default=1.0,
-        help="Global scale factor applied to the mesh and navmesh.",
+        default=None,
+        help="Absolute scale applied to the mesh and navmesh (overrides the config default).",
     )
     p.add_argument(
         "--texture_atlas_tile_size",
@@ -256,9 +256,8 @@ def setup_scene(eval_args) -> None:
     )
     MatterportGLBEnvCfg.env.render_viewer_every_n_steps = max(1, int(eval_args.viewer_every))
 
-    scene_scale = float(eval_args.scene_scale)
-    MatterportGLBEnvCfg.scene_scale = scene_scale
-    MatterportGLBEnvCfg.static_scene.scale = MatterportGLBEnvCfg.static_scene.scale * scene_scale
+    scene_scale = float(eval_args.scene_scale) if eval_args.scene_scale is not None else MatterportGLBEnvCfg.static_scene.scale
+    MatterportGLBEnvCfg.static_scene.scale = scene_scale
 
     logger.warning("Matterport scene: %s", glb_path)
     logger.warning(

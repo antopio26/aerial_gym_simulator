@@ -84,21 +84,18 @@ class task_config:
     #     processed_action[:, 3] = max_yawrate*processed_action[:, 3]
     #     return processed_action
 
+    @staticmethod
     def action_transformation_function(action):
         clamped_action = torch.clamp(action, -1.0, 1.0)
         max_speed = 2.0  # [m/s]
         max_yawrate = torch.pi / 3  # [rad/s]
-
-        # clamped_action[:, 0:3] = max_speed * clamped_action[:, 0:3]
-        # clamped_action[:, 3] = max_yawrate * clamped_action[:, 3]
-        # return clamped_action
 
         max_inclination_angle = torch.pi / 4  # [rad]
 
         clamped_action[:, 0] += 1.0
 
         processed_action = torch.zeros(
-            (clamped_action.shape[0], 4), device=task_config.device, requires_grad=False
+            (clamped_action.shape[0], 4), device=action.device, requires_grad=False
         )
         processed_action[:, 0] = (
             clamped_action[:, 0]

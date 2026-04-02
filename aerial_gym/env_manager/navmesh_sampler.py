@@ -109,12 +109,24 @@ class NavMeshSpawnSampler:
         )
         return points * navmesh_scale + navmesh_translation
 
-    def sample_world_points(self, env_ids, height_offset_range, bounds_min=None, bounds_max=None):
+    def sample_world_points(self, env_ids, height_offset_range, bounds_min=None, bounds_max=None, edge_padding=None):
+        """Sample valid world-frame positions from the navmesh.
+
+        Args:
+            env_ids:             LongTensor of environment indices to sample for.
+            height_offset_range: (low, high) tuple for the vertical offset above the navmesh.
+            bounds_min/max:      Optional per-env bound tensors for in-bounds filtering.
+            edge_padding:        Minimum distance from navmesh polygon edges.  When None
+                                 (default) the value from nav_cfg is used — this is the
+                                 spawn path.  Pass an explicit float to override for goal
+                                 sampling without touching the shared nav_cfg.
+        """
         if not self.enabled or self.navmesh is None or len(env_ids) == 0:
             return None
 
         env_ids = env_ids.to(dtype=torch.long, device=self.device)
-        edge_padding = float(getattr(self.nav_cfg, "edge_padding", 0.0))
+        if edge_padding is None:
+            edge_padding = float(getattr(self.nav_cfg, "edge_padding", 0.0))
         enforce_bounds = bool(getattr(self.nav_cfg, "enforce_env_bounds", True))
         max_bound_resample_rounds = int(getattr(self.nav_cfg, "max_bound_resample_rounds", 5))
 

@@ -213,25 +213,6 @@ class MatterportDCENavigationTask(NavigationTask):
         self.navmesh_goal_sampling_enabled = True
         logger.info("Enabled task navmesh goal sampling using env-level navmesh sampler.")
 
-        # Apply task-config navmesh_sampling overrides to the env-level sampler's nav_cfg.
-        # The sampler was built from env_cfg, so without this its internal parameters
-        # (edge_padding, spawn_height_offset_range, max_bound_resample_rounds, …) come
-        # from the env config and the task config values are silently ignored.
-        _SAMPLER_FIELDS = (
-            "edge_padding",
-            "spawn_height_offset_range",
-            "max_bound_resample_rounds",
-            "enforce_env_bounds",
-            "zero_velocity_on_spawn",
-        )
-        for field in _SAMPLER_FIELDS:
-            if hasattr(nav_cfg, field):
-                setattr(self.goal_navmesh_sampler.nav_cfg, field, getattr(nav_cfg, field))
-                logger.info(
-                    "Navmesh sampler override: %s = %s (from task config)",
-                    field, getattr(nav_cfg, field),
-                )
-
     def _sample_navmesh_goals(self, env_ids):
         if self.goal_navmesh_sampler is None:
             return None
@@ -240,9 +221,14 @@ class MatterportDCENavigationTask(NavigationTask):
 
         nav_cfg = self.task_config.navmesh_sampling
         goal_h = tuple(getattr(nav_cfg, "goal_height_offset_range", [0.0, 0.0]))
+        # Pass edge_padding explicitly so goal sampling uses the task-config value
+        # (e.g. 1.5 m) while spawn sampling continues to use the env-config value
+        # (e.g. 0.6 m) — two independently configured distances, no shared-state mutation.
+        goal_edge_padding = float(getattr(nav_cfg, "edge_padding", 0.0))
         goals = self.goal_navmesh_sampler.sample_world_points(
             env_ids=env_ids,
             height_offset_range=goal_h,
+            edge_padding=goal_edge_padding,
         )
         if goals is None:
             return None
@@ -278,6 +264,7 @@ class MatterportDCENavigationTask(NavigationTask):
                 resampled = self.goal_navmesh_sampler.sample_world_points(
                     env_ids=invalid_env_ids,
                     height_offset_range=goal_h,
+                    edge_padding=goal_edge_padding,
                 )
                 if resampled is None:
                     break
