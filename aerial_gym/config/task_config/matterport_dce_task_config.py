@@ -35,9 +35,9 @@ class MatterportVAETaskConfig(_BaseCfg):
     robot_name      = "lmf2"                   # depth-only: no RGB tensor overhead
     controller_name = "lmf2_velocity_control"
     args            = {}
-    num_envs        = 32
+    num_envs        = 2
     use_warp        = True
-    headless        = True
+    headless        = False
     device          = "cuda:0"
 
     observation_space_dim            = 81       # 17 state + 64 image latent
@@ -65,7 +65,7 @@ class MatterportVAETaskConfig(_BaseCfg):
         goal_height_offset_range   = [0.8, 1.8]
         goal_min_separation        = 2.0
         goal_max_separation        = 10.0
-        max_pair_sampling_attempts = 30
+        max_pair_sampling_attempts = 40
 
     class vae_config(_BaseCfg.vae_config):
         pass   # inherits use_vae=True, latent_dims=64, image_res=(270,480), model paths, etc.

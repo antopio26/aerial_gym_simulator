@@ -63,8 +63,8 @@ class MatterportGLBEnvCfg:
         navmesh_translation = [0.0, 0.0, 0.0]
 
         # Safe spawn configuration.
-        spawn_height_offset_range = [0.15, 0.40]
-        edge_padding = 0.30
+        spawn_height_offset_range = [0.8, 1.8]
+        edge_padding = 0.6
         enforce_env_bounds = True
         max_bound_resample_rounds = 40
         zero_velocity_on_spawn = True
@@ -73,5 +73,5 @@ class MatterportGLBEnvCfg:
 class MatterportGLBEnvNoTexturesCfg(MatterportGLBEnvCfg):
     # This variant of the MatterportGLBEnv disables texture rendering,
     # which reduces GPU memory usage and speeds up training iterations.
-    class static_scene:
+    class static_scene(MatterportGLBEnvCfg.static_scene):
         enable_texture_rendering = False

@@ -46,9 +46,18 @@ class AerialGymVecEnv(gym.Env):
         obs, rew, terminated, truncated, infos = self.env.reset()
         return obs, infos
 
-    def step(self, action) -> Tuple[Dict[str, Tensor], Tensor, Tensor, Tensor, Dict]:
+    def step(self, action):
         obs, rew, terminated, truncated, infos = self.env.step(action)
-        return obs, rew, terminated, truncated, infos
+        
+        # Convert Isaac Gym's single dictionary into a list of dictionaries
+        sf_infos = [{} for _ in range(self.num_agents)]
+        
+        # Pass standard truncation info down to individual agents safely
+        if isinstance(infos, dict) and "time_outs" in infos:
+            for i in range(self.num_agents):
+                sf_infos[i]["time_outs"] = infos["time_outs"][i]
+                
+        return obs, rew, terminated, truncated, sf_infos
 
     def render(self):
         pass
@@ -60,8 +69,15 @@ def make_aerialgym_env(
     _env_config=None,
     render_mode: Optional[str] = None,
 ) -> Env:
-
-    return AerialGymVecEnv(task_registry.make_task(task_name=full_task_name), "obs")
+    
+    # Check if we already built the environment. If not, build it.
+    if not hasattr(make_aerialgym_env, "env_instance"):
+        make_aerialgym_env.env_instance = AerialGymVecEnv(
+            task_registry.make_task(task_name=full_task_name), "obs"
+        )
+        
+    # Return the cached instance so Isaac Gym doesn't double-instantiate
+    return make_aerialgym_env.env_instance
 
 
 def add_extra_params_func(parser):
@@ -145,7 +161,7 @@ def override_default_params_func(env, parser):
         async_rl=True,
         use_env_info_cache=False,  # speeds up startup
         kl_loss_coeff=0.1,
-        restart_behavior="overwrite",
+        restart_behavior="override",
     )
 
     # override default config parameters for specific envs
@@ -183,14 +199,14 @@ env_configs = dict(
         rollout=32,
         learning_rate=1e-4,
         lr_schedule_kl_threshold=0.016,
-        batch_size=2048,
+        batch_size=32*32, # SHOULD BE: num_envs_per_worker * rollout (e.g., 256 * 32 = 8192)
         num_epochs=4,
         max_grad_norm=1.0,
         num_batches_per_epoch=4,
         exploration_loss_coeff=0.0,
-        with_wandb=False,
-        wandb_project="quad",
-        wandb_user="mihirkulkarni",
+        with_wandb=True,
+        wandb_project="nav_test",
+        wandb_user="antoniopio-maggio-politecnico-di-bari",
     ),
     matterport_vae_training_task=dict(
         train_for_env_steps=131000000000,
@@ -203,11 +219,15 @@ env_configs = dict(
         rollout=32,
         learning_rate=1e-4,
         lr_schedule_kl_threshold=0.016,
-        batch_size=512,
+        batch_size=32*32, # SHOULD BE: num_envs_per_worker * rollout (e.g., 256 * 32 = 8192)
         num_epochs=4,
         max_grad_norm=1.0,
         num_batches_per_epoch=2,
         exploration_loss_coeff=0.0,
+        with_wandb=True,
+        wandb_project="nav_test",
+        wandb_user="antoniopio-maggio-politecnico-di-bari",
+        restart_behavior="resume",
     ),
 )
 

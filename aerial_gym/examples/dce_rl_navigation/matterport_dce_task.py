@@ -213,6 +213,25 @@ class MatterportDCENavigationTask(NavigationTask):
         self.navmesh_goal_sampling_enabled = True
         logger.info("Enabled task navmesh goal sampling using env-level navmesh sampler.")
 
+        # Apply task-config navmesh_sampling overrides to the env-level sampler's nav_cfg.
+        # The sampler was built from env_cfg, so without this its internal parameters
+        # (edge_padding, spawn_height_offset_range, max_bound_resample_rounds, …) come
+        # from the env config and the task config values are silently ignored.
+        _SAMPLER_FIELDS = (
+            "edge_padding",
+            "spawn_height_offset_range",
+            "max_bound_resample_rounds",
+            "enforce_env_bounds",
+            "zero_velocity_on_spawn",
+        )
+        for field in _SAMPLER_FIELDS:
+            if hasattr(nav_cfg, field):
+                setattr(self.goal_navmesh_sampler.nav_cfg, field, getattr(nav_cfg, field))
+                logger.info(
+                    "Navmesh sampler override: %s = %s (from task config)",
+                    field, getattr(nav_cfg, field),
+                )
+
     def _sample_navmesh_goals(self, env_ids):
         if self.goal_navmesh_sampler is None:
             return None
