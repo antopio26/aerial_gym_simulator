@@ -28,7 +28,7 @@
 #   ./run_matterport_comparison_eval.sh
 #
 #   # Custom scene
-#   ./run_matterport_comparison_eval.sh --scene_folder resources/envs/00801-HaxA7YrQdEC
+#   ./run_matterport_comparison_eval.sh --scene_folder resources/envs/val/00801-HaxA7YrQdEC
 #
 #   # Custom model paths
 #   VIT_MODEL_PATH=/my/path/vit_adapter_pipeline_240x320.pt \

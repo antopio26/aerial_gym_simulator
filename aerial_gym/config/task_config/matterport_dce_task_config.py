@@ -60,12 +60,37 @@ class MatterportVAETaskConfig(_BaseCfg):
 
     class navmesh_sampling:
         enable                     = True
-        edge_padding               = 0.6
+        edge_padding               = 0.5
         spawn_height_offset_range  = [0.8, 1.8]
         goal_height_offset_range   = [0.8, 1.8]
         goal_min_separation        = 2.0
         goal_max_separation        = 10.0
         max_pair_sampling_attempts = 40
+
+    class navmesh_curriculum:
+        """Curriculum-driven schedule for navmesh sampling parameters.
+
+        Each schedule tuple is (start_value, end_value, ramp_start, ramp_end)
+        where ramp_start/ramp_end are fractions of curriculum_progress (0→1).
+        Before ramp_start the start_value is used, after ramp_end the end_value
+        is used, in between values are linearly interpolated.
+
+        Set enable=False to keep all navmesh params static.
+        """
+        enable = False
+
+        # --- Separation: grows with curriculum (easy → hard) ---
+        goal_min_separation = (2.0, 8.0, 0.0, 0.7)
+        goal_max_separation = (6.0, 15.0, 0.0, 0.7)
+
+        # --- Edge padding: shrinks slowly (safe → tight) ---
+        edge_padding = (0.5, 0.2, 0.0, 1.0)
+
+        # --- Height offsets: widen later for multi-floor navigation ---
+        spawn_height_low  = (0.8, 0.5, 0.5, 1.0)
+        spawn_height_high = (1.2, 3.0, 0.5, 1.0)
+        goal_height_low   = (0.8, 0.5, 0.5, 1.0)
+        goal_height_high  = (1.2, 3.0, 0.5, 1.0)
 
     class vae_config(_BaseCfg.vae_config):
         pass   # inherits use_vae=True, latent_dims=64, image_res=(270,480), model paths, etc.

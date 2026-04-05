@@ -5,6 +5,10 @@ from aerial_gym.config.env_config.forest_env import ForestEnvCfg
 from aerial_gym.config.env_config.env_config_2ms import EnvCfg2Ms
 from aerial_gym.config.env_config.dynamic_environment import DynamicEnvironmentCfg
 from aerial_gym.config.env_config.matterport_glb_env import MatterportGLBEnvCfg, MatterportGLBEnvNoTexturesCfg
+from aerial_gym.config.env_config.multi_scene_matterport_env import (
+    MultiSceneMatterportEnvCfg,
+    MultiSceneMatterportEnvNoTexturesCfg,
+)
 
 from aerial_gym.registry.env_registry import env_config_registry
 
@@ -15,3 +19,5 @@ env_config_registry.register("empty_env_2ms", EnvCfg2Ms)
 env_config_registry.register("dynamic_env", DynamicEnvironmentCfg)
 env_config_registry.register("matterport_glb_env", MatterportGLBEnvCfg)
 env_config_registry.register("matterport_glb_env_no_textures", MatterportGLBEnvNoTexturesCfg)
+env_config_registry.register("multi_scene_matterport_env", MultiSceneMatterportEnvCfg)
+env_config_registry.register("multi_scene_matterport_env_no_textures", MultiSceneMatterportEnvNoTexturesCfg)

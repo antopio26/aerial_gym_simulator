@@ -206,13 +206,13 @@ def _resolve_glb(scene_file=None, scene_folder=None) -> str:
     Resolution order:
       1. --scene_file (absolute or relative to AERIAL_GYM_DIRECTORY)
       2. --scene_folder → first .glb inside it
-         (absolute | relative to AERIAL_GYM_DIRECTORY | name under resources/envs/)
+         (absolute | relative to AERIAL_GYM_DIRECTORY | name under resources/envs/val)
       3. Default from MatterportGLBEnvCfg.static_scene.file
     """
     import glob
     import os
 
-    res_envs = os.path.join(AERIAL_GYM_DIRECTORY, "resources/envs")
+    res_envs = os.path.join(AERIAL_GYM_DIRECTORY, "resources/envs/val")
 
     if scene_file is not None:
         p = scene_file if os.path.isabs(scene_file) else os.path.join(AERIAL_GYM_DIRECTORY, scene_file)

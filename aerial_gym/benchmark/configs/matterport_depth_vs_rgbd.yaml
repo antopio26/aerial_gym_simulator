@@ -27,7 +27,7 @@ scene:
   # Folder-driven scene input. If set, the first .glb in this folder is used.
   # Works with either absolute path or folder name under scene.root.
   folder: 00800-TEEsavR23oF
-  root: resources/envs
+  root: resources/envs/val
   # Optional explicit .glb override. Leave null for folder/default selection.
   file: null
 

@@ -119,3 +119,19 @@ task_registry.register_task(
     MatterportDCENavigationTask,
     MatterportVAETaskConfig,
 )
+
+from aerial_gym.examples.dce_rl_navigation.multi_scene_dce_task import MultiSceneDCENavigationTask
+from aerial_gym.config.task_config.multi_scene_task_config import (
+    MultiSceneVAETaskConfig,
+    MultiSceneViTTaskConfig,
+)
+task_registry.register_task(
+    "multi_scene_vae_training_task",
+    MultiSceneDCENavigationTask,
+    MultiSceneVAETaskConfig,
+)
+task_registry.register_task(
+    "multi_scene_vit_training_task",
+    MultiSceneDCENavigationTask,
+    MultiSceneViTTaskConfig,
+)

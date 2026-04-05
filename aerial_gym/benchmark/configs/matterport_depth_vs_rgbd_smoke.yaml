@@ -25,7 +25,7 @@ gif:
 
 scene:
   folder: 00800-TEEsavR23oF
-  root: resources/envs
+  root: resources/envs/val
   file: null
 
 spawn_region:

@@ -5,7 +5,7 @@ import numpy as np
 import trimesh as tm
 
 
-def _resolve_scene_folder_path(scene_folder: str, scene_root: str = "resources/envs") -> str:
+def _resolve_scene_folder_path(scene_folder: str, scene_root: str) -> str:
     if os.path.isabs(scene_folder) and os.path.isdir(scene_folder):
         return scene_folder
     if os.path.isdir(scene_folder):
@@ -53,7 +53,7 @@ def resolve_scene_bundle(
     cfg_cls,
     scene_file: Optional[str] = None,
     scene_folder: Optional[str] = None,
-    scene_root: str = "resources/envs",
+    scene_root: str,
     logger=None,
 ) -> dict:
     if scene_folder:
@@ -98,14 +98,14 @@ def resolve_scene_file(cfg_cls, scene_file: Optional[str] = None, logger=None) -
         return default_scene
 
     glb_candidates = []
-    for root, _, files in os.walk("resources/envs"):
+    for root, _, files in os.walk("resources/envs/val"):
         for fname in files:
             if fname.endswith(".glb"):
                 glb_candidates.append(os.path.join(root, fname))
 
     if len(glb_candidates) == 0:
         raise FileNotFoundError(
-            "No .glb files found under resources/envs and default static scene path is invalid."
+            "No .glb files found under resources/envs/val and default static scene path is invalid."
         )
 
     glb_candidates.sort()
@@ -269,7 +269,7 @@ def resolve_scene_file_from_env(cfg_cls, prefix: str, logger=None) -> str:
 def resolve_scene_bundle_from_env(cfg_cls, prefix: str, logger=None) -> dict:
     scene_file = os.getenv(f"{prefix}_SCENE_FILE", "") or None
     scene_folder = os.getenv(f"{prefix}_SCENE_FOLDER", "") or None
-    scene_root = os.getenv(f"{prefix}_SCENE_ROOT", "resources/envs")
+    scene_root = os.getenv(f"{prefix}_SCENE_ROOT", "resources/envs/val")
 
     return resolve_scene_bundle(
         cfg_cls,

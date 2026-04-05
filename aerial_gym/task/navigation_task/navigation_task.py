@@ -52,17 +52,7 @@ class NavigationTask(BaseTask):
             )
         )
 
-        self.sim_env = SimBuilder().build_env(
-            sim_name=self.task_config.sim_name,
-            env_name=self.task_config.env_name,
-            robot_name=self.task_config.robot_name,
-            controller_name=self.task_config.controller_name,
-            args=self.task_config.args,
-            device=self.device,
-            num_envs=self.task_config.num_envs,
-            use_warp=self.task_config.use_warp,
-            headless=self.task_config.headless,
-        )
+        self.sim_env = self._build_sim_env()
 
         self.target_position = torch.zeros(
             (self.sim_env.num_envs, 3), device=self.device, requires_grad=False
@@ -163,6 +153,25 @@ class NavigationTask(BaseTask):
         }
 
         self.num_task_steps = 0
+
+    def _build_sim_env(self):
+        """Create and return the simulation environment.
+
+        Override in subclasses to use a different env manager (e.g.
+        MultiSceneEnvManager).  The returned object must conform to the
+        EnvManager interface.
+        """
+        return SimBuilder().build_env(
+            sim_name=self.task_config.sim_name,
+            env_name=self.task_config.env_name,
+            robot_name=self.task_config.robot_name,
+            controller_name=self.task_config.controller_name,
+            args=self.task_config.args,
+            device=self.device,
+            num_envs=self.task_config.num_envs,
+            use_warp=self.task_config.use_warp,
+            headless=self.task_config.headless,
+        )
 
     def close(self):
         self.sim_env.delete_env()

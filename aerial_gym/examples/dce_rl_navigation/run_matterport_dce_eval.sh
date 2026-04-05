@@ -16,7 +16,7 @@
 #   ./run_matterport_dce_eval.sh
 #
 #   # Custom scene folder
-#   ./run_matterport_dce_eval.sh --scene_folder resources/envs/00801-HaxA7YrQdEC
+#   ./run_matterport_dce_eval.sh --scene_folder resources/envs/val/00801-HaxA7YrQdEC
 #
 #   # Custom checkpoint + more episodes
 #   TRAIN_DIR=/path/to/checkpoint ./run_matterport_dce_eval.sh --max_episodes=100

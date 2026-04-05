@@ -32,7 +32,7 @@ def _default_config() -> Dict[str, Any]:
         "scene": {
             "file": None,
             "folder": None,
-            "root": "resources/envs",
+            "root": "resources/envs/val",
         },
         "spawn_region": {},
         "navmesh": {

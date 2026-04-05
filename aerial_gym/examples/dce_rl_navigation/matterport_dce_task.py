@@ -171,6 +171,58 @@ class MatterportDCENavigationTask(NavigationTask):
             self._policy_every_n,     1.0 / (sim_dt * self._policy_every_n),
         )
 
+    # ------------------------------------------------------------------
+    # Navmesh curriculum
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _lerp_schedule(schedule, progress):
+        """Linearly interpolate a (start, end, ramp_start, ramp_end) schedule."""
+        start_val, end_val, ramp_start, ramp_end = schedule
+        if progress <= ramp_start:
+            return float(start_val)
+        if progress >= ramp_end:
+            return float(end_val)
+        t = (progress - ramp_start) / (ramp_end - ramp_start)
+        return float(start_val + t * (end_val - start_val))
+
+    def _update_navmesh_curriculum(self):
+        """Update navmesh sampling parameters based on curriculum progress.
+
+        Called after each curriculum level update so that spawn and goal
+        sampling automatically adjust.  Updates the env-level sampler's
+        config in-place (spawn params) and stores goal params for use in
+        ``_sample_navmesh_goals``.
+        """
+        nc = getattr(self.task_config, "navmesh_curriculum", None)
+        if nc is None or not getattr(nc, "enable", False):
+            return
+
+        p = self.curriculum_progress_fraction
+
+        # Cache current goal params for _sample_navmesh_goals.
+        self._cur_goal_min_sep = self._lerp_schedule(nc.goal_min_separation, p)
+        self._cur_goal_max_sep = self._lerp_schedule(nc.goal_max_separation, p)
+        self._cur_goal_edge_padding = self._lerp_schedule(nc.edge_padding, p)
+        self._cur_goal_h = (
+            self._lerp_schedule(nc.goal_height_low, p),
+            self._lerp_schedule(nc.goal_height_high, p),
+        )
+
+        # Update the env sampler's spawn parameters in-place.
+        sampler = getattr(self.sim_env, "navmesh_sampler", None)
+        if sampler is not None and hasattr(sampler, "nav_cfg") and sampler.nav_cfg is not None:
+            sampler.nav_cfg.edge_padding = self._lerp_schedule(nc.edge_padding, p)
+            sampler.nav_cfg.spawn_height_offset_range = [
+                self._lerp_schedule(nc.spawn_height_low, p),
+                self._lerp_schedule(nc.spawn_height_high, p),
+            ]
+
+    def check_and_update_curriculum_level(self, successes, crashes, timeouts):
+        """Extend base curriculum update with navmesh parameter scheduling."""
+        super().check_and_update_curriculum_level(successes, crashes, timeouts)
+        self._update_navmesh_curriculum()
+
     def reset_idx(self, env_ids):
         # Convert env_ids to a LongTensor on the correct device and dtype if needed.
         if not torch.is_tensor(env_ids):
@@ -220,11 +272,15 @@ class MatterportDCENavigationTask(NavigationTask):
         env_ids = env_ids.to(device=self.device, dtype=torch.long)
 
         nav_cfg = self.task_config.navmesh_sampling
-        goal_h = tuple(getattr(nav_cfg, "goal_height_offset_range", [0.0, 0.0]))
-        # Pass edge_padding explicitly so goal sampling uses the task-config value
-        # (e.g. 1.5 m) while spawn sampling continues to use the env-config value
-        # (e.g. 0.6 m) — two independently configured distances, no shared-state mutation.
-        goal_edge_padding = float(getattr(nav_cfg, "edge_padding", 0.0))
+
+        # Use curriculum-adjusted params when available, otherwise static config.
+        goal_h = getattr(self, "_cur_goal_h", None) or tuple(
+            getattr(nav_cfg, "goal_height_offset_range", [0.0, 0.0])
+        )
+        goal_edge_padding = getattr(self, "_cur_goal_edge_padding", None)
+        if goal_edge_padding is None:
+            goal_edge_padding = float(getattr(nav_cfg, "edge_padding", 0.0))
+
         goals = self.goal_navmesh_sampler.sample_world_points(
             env_ids=env_ids,
             height_offset_range=goal_h,
@@ -233,9 +289,13 @@ class MatterportDCENavigationTask(NavigationTask):
         if goals is None:
             return None
 
-        min_sep = float(getattr(nav_cfg, "goal_min_separation", 0.0) or 0.0)
-        max_sep_cfg = getattr(nav_cfg, "goal_max_separation", None)
-        max_sep = float(max_sep_cfg) if max_sep_cfg is not None else None
+        min_sep = getattr(self, "_cur_goal_min_sep", None)
+        if min_sep is None:
+            min_sep = float(getattr(nav_cfg, "goal_min_separation", 0.0) or 0.0)
+        max_sep = getattr(self, "_cur_goal_max_sep", None)
+        if max_sep is None:
+            max_sep_cfg = getattr(nav_cfg, "goal_max_separation", None)
+            max_sep = float(max_sep_cfg) if max_sep_cfg is not None else None
         max_attempts = int(getattr(nav_cfg, "max_pair_sampling_attempts", 4))
 
         planar_axes = (0, 1)

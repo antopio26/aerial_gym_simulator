@@ -255,6 +255,14 @@ class EnvManager(BaseManager):
 
         self.global_tensor_dict["num_obstacles_in_env"] = self.num_obs_in_env
 
+        self._load_static_scenes()
+
+    def _load_static_scenes(self):
+        """Load static scene collision meshes and warp geometry.
+
+        Override this method in subclasses (e.g. MultiSceneEnvManager) to
+        support per-env scene assignment or multiple coexisting scenes.
+        """
         if hasattr(self.cfg, "static_scene") and getattr(self.cfg.static_scene, "enable", False):
             self.static_scene = StaticSceneGLB(self.cfg.static_scene)
             for env_origin in self.IGE_env.env_origins:

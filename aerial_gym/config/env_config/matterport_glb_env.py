@@ -31,7 +31,7 @@ class MatterportGLBEnvCfg:
 
     class static_scene:
         enable = True
-        file = "resources/envs/00807-rsggHU7g7dh/rsggHU7g7dh.glb"
+        file = "resources/envs/val/00807-rsggHU7g7dh/rsggHU7g7dh.glb"
         collision_file = None
         scale = 1.5
         translation = [0.0, 0.0, 0.0]
@@ -58,7 +58,7 @@ class MatterportGLBEnvCfg:
 
         # Safe spawn configuration.
         spawn_height_offset_range = [0.8, 1.8]
-        edge_padding = 0.6
+        edge_padding = 0.5
         enforce_env_bounds = True
         max_bound_resample_rounds = 40
         zero_velocity_on_spawn = True
